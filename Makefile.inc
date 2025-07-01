@@ -1,5 +1,5 @@
 COMPILER=gcc
 
-COMPILERFLAGS=-Wall -pedantic -std=c11 -g -lrt -pthread -Wno-pointer-airth
+COMPILERFLAGS=-Wall -pedantic -std=c11 -g -lrt -pthread -Wno-pointer-arith
 
 LDFLAGS=

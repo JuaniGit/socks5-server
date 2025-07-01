@@ -7,15 +7,16 @@
 #include <assert.h> // :)
 #include <errno.h>  // :)
 #include <pthread.h>
-
 #include <stdint.h> // SIZE_MAX
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/select.h>
-#include <sys/signal.h>
+#include <signal.h>
 #include "selector.h"
+
+#define _POSIX_C_SOURCE 200809L
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 

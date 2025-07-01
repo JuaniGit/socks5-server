@@ -50,3 +50,15 @@ modules.order
 Module.symvers
 Mkfile.old
 dkms.conf
+
+#bin
+bin/
+
+#obj
+obj/
+
+#vscode
+.vscode/
+
+#MAC
+.DS_Store/
