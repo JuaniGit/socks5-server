@@ -1,6 +1,8 @@
 /**
  * selector.c - un muliplexor de entrada salida
  */
+#define _POSIX_C_SOURCE 200112L
+
 #include <stdio.h>  // perror
 #include <stdlib.h> // malloc
 #include <string.h> // memset
@@ -15,8 +17,6 @@
 #include <sys/select.h>
 #include <signal.h>
 #include "selector.h"
-
-#define _POSIX_C_SOURCE 200809L
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -453,7 +453,6 @@ handle_iteration(fd_selector s) {
     struct selector_key key = {
         .s = s,
     };
-
     for (int i = 0; i <= n; i++) {
         struct item *item = s->fds + i;
         if(ITEM_USED(item)) {
@@ -461,8 +460,10 @@ handle_iteration(fd_selector s) {
             key.data = item->data;
             if(FD_ISSET(item->fd, &s->slave_r)) {
                 if(OP_READ & item->interest) {
-                    if(0 == item->handler->handle_read) {
-                        assert(("OP_READ arrived but no handler. bug!" == 0));
+                    if(item->handler == NULL) {
+                        fprintf(stderr, "SEGFAULT: handler NULL en fd %d\n", item->fd);
+                    } else if(item->handler->handle_read == NULL) {
+                        fprintf(stderr, "SEGFAULT: handle_read NULL en fd %d\n", item->fd);
                     } else {
                         item->handler->handle_read(&key);
                     }
@@ -542,6 +543,7 @@ selector_select(fd_selector s) {
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
     s->selector_thread = pthread_self();
+
 
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &s->slave_t,
                       &emptyset);
