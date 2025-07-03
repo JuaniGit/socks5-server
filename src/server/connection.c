@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include "socks5.h"
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -184,9 +185,30 @@ static unsigned on_request_read(struct selector_key *key) {
     if (res < 0) return ST_DONE;     // error, cerrar conexión
     if (res == 0) return ST_REQUEST; // sigue esperando más datos
     
-    log(INFO, "Request procesado exitosamente");
-    // res == 1 significa request OK, proceder a resolución
-    return ST_CONNECTING;
+    log(INFO, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
+    
+    // Conectar directamente aquí en lugar de cambiar de estado
+    if (socks5_finish_connection(conn) < 0) {
+        log(ERROR, "Error conectando al servidor remoto");
+        socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
+        return ST_DONE;
+    }
+
+    // Enviar respuesta exitosa al cliente
+    if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
+        log(ERROR, "Error enviando respuesta de éxito");
+        return ST_DONE;
+    }
+
+    // Registrar el fd remoto en el selector
+    selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
+    if (s != SELECTOR_SUCCESS) {
+        log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
+        return ST_DONE;
+    }
+
+    log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+    return ST_STREAM;
 }
 
 static unsigned on_resolving_block(struct selector_key *key) {
@@ -195,32 +217,127 @@ static unsigned on_resolving_block(struct selector_key *key) {
 }
 
 static unsigned on_connect_block(struct selector_key *key) {
-    // struct socks5_connection *conn = key->data;
-
-    // if (socks5_finish_connection(conn) < 0) return ST_DONE;
-
-    // // registrar remote_fd si no lo estaba
-    // selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
-    // return ST_STREAM;
+    // Esta función ya no se usa, la conexión se hace directamente en on_request_read
+    return ST_STREAM;
 }
 
 static unsigned on_stream_read(struct selector_key *key) {
-    // struct socks5_connection *conn = key->data;
-
-    // int from = key->fd;
-    // int to = (from == conn->client_fd) ? conn->remote_fd : conn->client_fd;
-
-    // char buf[4096];
-    // ssize_t n = recv(from, buf, sizeof(buf), 0);
-    // if (n <= 0) return ST_DONE;
-
-    // send(to, buf, n, 0);
-    // return ST_STREAM;
+    struct socks5_connection *conn = key->data;
+    
+    int from_fd = key->fd;
+    int to_fd;
+    buffer *from_buf, *to_buf;
+    
+    // Determinar dirección del flujo de datos
+    if (from_fd == conn->client_fd) {
+        // Cliente -> Servidor remoto
+        to_fd = conn->remote_fd;
+        from_buf = &conn->read_buf_client;
+        to_buf = &conn->write_buf_remote;
+    } else {
+        // Servidor remoto -> Cliente
+        to_fd = conn->client_fd;
+        from_buf = &conn->read_buf_remote;
+        to_buf = &conn->write_buf_client;
+    }
+    
+    // Leer datos del socket origen
+    size_t space;
+    uint8_t *ptr = buffer_write_ptr(from_buf, &space);
+    
+    if (space == 0) {
+        // Buffer lleno, pausar lectura y activar escritura
+        selector_set_interest_key(key, OP_NOOP);
+        selector_set_interest(key->s, to_fd, OP_WRITE);
+        return ST_STREAM;
+    }
+    
+    ssize_t n = recv(from_fd, ptr, space, 0);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return ST_STREAM; // No hay datos disponibles
+        }
+        log(ERROR, "Error en recv(): %s", strerror(errno));
+        return ST_DONE;
+    } else if (n == 0) {
+        // Conexión cerrada por el peer
+        log(INFO, "Conexión cerrada por %s", (from_fd == conn->client_fd) ? "cliente" : "servidor remoto");
+        return ST_DONE;
+    }
+    
+    buffer_write_adv(from_buf, n);
+    
+    // Intentar escribir inmediatamente al destino
+    size_t available;
+    uint8_t *data = buffer_read_ptr(from_buf, &available);
+    
+    if (available > 0) {
+        ssize_t sent = send(to_fd, data, available, MSG_NOSIGNAL);
+        if (sent > 0) {
+            buffer_read_adv(from_buf, sent);
+            // Actualizar estadísticas
+            // TODO: agregar contador de bytes transferidos
+        } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+            log(ERROR, "Error en send(): %s", strerror(errno));
+            return ST_DONE;
+        }
+        
+        // Si no se pudo enviar todo, activar escritura en destino
+        buffer_read_ptr(from_buf, &available);
+        if (available > 0) {
+            selector_set_interest(key->s, to_fd, OP_READ | OP_WRITE);
+        }
+    }
+    
+    return ST_STREAM;
 }
 
 static unsigned on_stream_write(struct selector_key *key) {
-    // Si implementás buffering y control fino de escritura
-    // return ST_STREAM;
+    struct socks5_connection *conn = key->data;
+    
+    int to_fd = key->fd;
+    buffer *buf;
+    int from_fd;
+    
+    // Determinar qué buffer usar
+    if (to_fd == conn->client_fd) {
+        buf = &conn->write_buf_client;
+        from_fd = conn->remote_fd;
+    } else {
+        buf = &conn->write_buf_remote;
+        from_fd = conn->client_fd;
+    }
+    
+    // Escribir datos pendientes
+    size_t available;
+    uint8_t *data = buffer_read_ptr(buf, &available);
+    
+    if (available == 0) {
+        // No hay datos para escribir, desactivar escritura
+        selector_set_interest_key(key, OP_READ);
+        return ST_STREAM;
+    }
+    
+    ssize_t sent = send(to_fd, data, available, MSG_NOSIGNAL);
+    if (sent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return ST_STREAM; // Socket no listo para escritura
+        }
+        log(ERROR, "Error en send(): %s", strerror(errno));
+        return ST_DONE;
+    }
+    
+    buffer_read_adv(buf, sent);
+    
+    // Verificar si se escribió todo
+    buffer_read_ptr(buf, &available);
+    if (available == 0) {
+        // Buffer vacío, reactivar lectura del origen
+        selector_set_interest_key(key, OP_READ);
+        selector_set_interest(key->s, from_fd, OP_READ);
+    }
+    
+    return ST_STREAM;
 }
 
 static void on_done_arrival(unsigned state, struct selector_key *key) {

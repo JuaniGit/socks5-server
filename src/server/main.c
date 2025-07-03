@@ -42,6 +42,8 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
+    log(INFO, "Nueva conexión aceptada (fd=%d)", client_fd);
+
     // Hacer no bloqueante
     if (selector_fd_set_nio(client_fd) < 0) {
         log(ERROR, "No se pudo poner en modo no bloqueante: %s", strerror(errno));
@@ -57,6 +59,8 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
+    log(INFO, "Conexión SOCKS5 creada para fd=%d", client_fd);
+
     // Registrar en el selector con el handler global
     selector_status s = selector_register(key->s, client_fd, &socks5_handler, OP_READ, conn);
     if (s != SELECTOR_SUCCESS) {
@@ -71,7 +75,7 @@ static void accept_handler(struct selector_key* key) {
 
     char client_addr_str[128];
     printSocketAddress((struct sockaddr*)&client_addr, client_addr_str);
-    log(INFO, "Nueva conexión desde %s (fd=%d). Conexiones activas: %zu", client_addr_str, client_fd, current_connections);
+    log(INFO, "Cliente registrado desde %s (fd=%d). Conexiones activas: %zu", client_addr_str, client_fd, current_connections);
 }
 
 /**

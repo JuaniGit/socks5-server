@@ -199,3 +199,59 @@ int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_c
     log(DEBUG, "Respuesta de request enviada: reply_code=%d", reply_code);
     return 0;
 }
+
+int socks5_finish_connection(struct socks5_connection *conn) {
+    // Crear socket para conexión remota
+    int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (remote_fd < 0) {
+        log(ERROR, "Error creando socket remoto: %s", strerror(errno));
+        return -1;
+    }
+    
+    // Resolver la dirección del destino
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    
+    char port_str[6];
+    snprintf(port_str, sizeof(port_str), "%d", conn->target_port);
+    
+    struct addrinfo *result;
+    int gai_result = getaddrinfo(conn->target_host, port_str, &hints, &result);
+    if (gai_result != 0) {
+        log(ERROR, "Error resolviendo %s: %s", conn->target_host, gai_strerror(gai_result));
+        close(remote_fd);
+        return -1;
+    }
+    
+    // Intentar conectar con cada dirección disponible (modo bloqueante por simplicidad)
+    int connect_result = -1;
+    for (struct addrinfo *addr = result; addr != NULL; addr = addr->ai_next) {
+        connect_result = connect(remote_fd, addr->ai_addr, addr->ai_addrlen);
+        if (connect_result == 0) {
+            // Conexión exitosa
+            break;
+        }
+        log(DEBUG, "Fallo conectando a una dirección, intentando siguiente...");
+    }
+    
+    freeaddrinfo(result);
+    
+    if (connect_result < 0) {
+        log(ERROR, "Error conectando a %s:%d: %s", conn->target_host, conn->target_port, strerror(errno));
+        close(remote_fd);
+        return -1;
+    }
+    
+    // Ahora hacer el socket no bloqueante para el relay de datos
+    if (selector_fd_set_nio(remote_fd) < 0) {
+        log(ERROR, "Error configurando socket remoto como no bloqueante: %s", strerror(errno));
+        close(remote_fd);
+        return -1;
+    }
+    
+    conn->remote_fd = remote_fd;
+    log(INFO, "Conexión establecida a %s:%d (fd=%d)", conn->target_host, conn->target_port, remote_fd);
+    return 0;
+}
