@@ -1,12 +1,11 @@
 #define _POSIX_C_SOURCE 200112L
 #include "connection.h"
 #include "../shared/logger.h"
-// #include "socks5_protocol.h"  // logica de handshake/request/connect
+#include "socks5.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include "socks5.h"
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -58,6 +57,7 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
 
     conn->client_fd = client_fd;
     conn->remote_fd = -1;
+    conn->dns_job = NULL;
     buffer_init(&conn->read_buf_client, 4096, malloc(4096));
     buffer_init(&conn->write_buf_client, 4096, malloc(4096));
     buffer_init(&conn->read_buf_remote, 4096, malloc(4096));
@@ -78,6 +78,13 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     if (conn->remote_fd != -1) close(conn->remote_fd);
 
     if (conn->addr_list) freeaddrinfo(conn->addr_list);
+    
+    if (conn->dns_job) {
+        if (conn->dns_job->result) {
+            freeaddrinfo(conn->dns_job->result);
+        }
+        free(conn->dns_job);
+    }
 
     free(conn->read_buf_client.data);
     free(conn->write_buf_client.data);
@@ -187,7 +194,93 @@ static unsigned on_request_read(struct selector_key *key) {
     
     log(INFO, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
     
-    // Conectar directamente aquí en lugar de cambiar de estado
+    // Decidir si necesitamos resolución DNS o podemos conectar directamente
+    if (conn->target_atyp == SOCKS5_ATYP_DOMAINNAME) {
+        // Necesitamos resolución DNS asíncrona
+        log(INFO, "Iniciando resolución DNS asíncrona para %s", conn->target_host);
+        start_resolve_async(conn, key->s);
+        return ST_RESOLVING;
+    } else {
+        // Es una IP, podemos conectar directamente
+        // Crear una addrinfo fake para la IP
+        struct addrinfo *addr = calloc(1, sizeof(*addr));
+        if (!addr) {
+            log(ERROR, "Error alocando memoria para addrinfo");
+            return ST_DONE;
+        }
+        
+        if (conn->target_atyp == SOCKS5_ATYP_IPV4) {
+            struct sockaddr_in *sin = calloc(1, sizeof(*sin));
+            sin->sin_family = AF_INET;
+            sin->sin_port = htons(conn->target_port);
+            inet_pton(AF_INET, conn->target_host, &sin->sin_addr);
+            
+            addr->ai_family = AF_INET;
+            addr->ai_socktype = SOCK_STREAM;
+            addr->ai_protocol = IPPROTO_TCP;
+            addr->ai_addr = (struct sockaddr*)sin;
+            addr->ai_addrlen = sizeof(*sin);
+        } else if (conn->target_atyp == SOCKS5_ATYP_IPV6) {
+            struct sockaddr_in6 *sin6 = calloc(1, sizeof(*sin6));
+            sin6->sin6_family = AF_INET6;
+            sin6->sin6_port = htons(conn->target_port);
+            inet_pton(AF_INET6, conn->target_host, &sin6->sin6_addr);
+            
+            addr->ai_family = AF_INET6;
+            addr->ai_socktype = SOCK_STREAM;
+            addr->ai_protocol = IPPROTO_TCP;
+            addr->ai_addr = (struct sockaddr*)sin6;
+            addr->ai_addrlen = sizeof(*sin6);
+        }
+        
+        conn->addr_list = addr;
+        
+        // Conectar directamente aquí también
+        if (socks5_finish_connection(conn) < 0) {
+            log(ERROR, "Error conectando al servidor remoto");
+            socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
+            return ST_DONE;
+        }
+
+        // Enviar respuesta exitosa al cliente
+        if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
+            log(ERROR, "Error enviando respuesta de éxito");
+            return ST_DONE;
+        }
+
+        // Registrar el fd remoto en el selector
+        selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
+        if (s != SELECTOR_SUCCESS) {
+            log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
+            return ST_DONE;
+        }
+
+        log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+        return ST_STREAM;
+    }
+}
+
+static unsigned on_resolving_block(struct selector_key *key) {
+    struct socks5_connection *conn = key->data;
+    
+    if (!conn->dns_job) {
+        log(ERROR, "on_resolving_block llamado sin job DNS");
+        return ST_DONE;
+    }
+    
+    if (conn->dns_job->error_code != 0) {
+        log(ERROR, "Error en resolución DNS: %s", gai_strerror(conn->dns_job->error_code));
+        socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
+        return ST_DONE;
+    }
+    
+    // Resolución exitosa
+    conn->addr_list = conn->dns_job->result;
+    conn->dns_job->result = NULL; // Transferir ownership
+    
+    log(INFO, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
+    
+    // Hacer la conexión directamente aquí
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "Error conectando al servidor remoto");
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
@@ -211,13 +304,30 @@ static unsigned on_request_read(struct selector_key *key) {
     return ST_STREAM;
 }
 
-static unsigned on_resolving_block(struct selector_key *key) {
-    // struct socks5_connection *conn = key->data;
-    // return ST_CONNECTING;
-}
-
 static unsigned on_connect_block(struct selector_key *key) {
-    // Esta función ya no se usa, la conexión se hace directamente en on_request_read
+    struct socks5_connection *conn = key->data;
+    
+    // Intentar conectar al servidor remoto
+    if (socks5_finish_connection(conn) < 0) {
+        log(ERROR, "Error conectando al servidor remoto");
+        socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
+        return ST_DONE;
+    }
+
+    // Enviar respuesta exitosa al cliente
+    if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
+        log(ERROR, "Error enviando respuesta de éxito");
+        return ST_DONE;
+    }
+
+    // Registrar el fd remoto en el selector
+    selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
+    if (s != SELECTOR_SUCCESS) {
+        log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
+        return ST_DONE;
+    }
+
+    log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
     return ST_STREAM;
 }
 

@@ -45,9 +45,8 @@ int socks5_process_request(struct socks5_connection *conn);
 // Devuelve 0 si se conecta correctamente, -1 si no.
 int socks5_finish_connection(struct socks5_connection *conn);
 
-// (Opcional) Lanza un hilo o tarea de resolución DNS (puede usar `getaddrinfo`) y luego
-// debe llamar a `selector_notify_block()` cuando termine, para que se dispare ST_RESOLVING.
-void start_resolve_async(struct socks5_connection *conn);
+// Lanza un hilo de resolución DNS y luego llama a selector_notify_block()
+void start_resolve_async(struct socks5_connection *conn, fd_selector selector);
 
 // Nuevas funciones
 int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method);

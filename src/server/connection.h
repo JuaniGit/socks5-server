@@ -3,6 +3,7 @@
 
 #define _POSIX_C_SOURCE 200112L
 #include <netdb.h>
+#include <pthread.h>
 #include "../selector.h"
 #include "../stm.h"
 #include "../buffer.h"
@@ -14,6 +15,17 @@ enum socks5_state {
     ST_CONNECTING,
     ST_STREAM,
     ST_DONE,
+};
+
+// Estructura para pasar datos al thread de resolución DNS
+struct dns_resolution_job {
+    struct socks5_connection *conn;
+    fd_selector selector;
+    char hostname[256];
+    uint16_t port;
+    struct addrinfo *result;
+    int error_code;
+    pthread_t thread_id;
 };
 
 // Encapsula toda la información de una conexión cliente SOCKS5
@@ -29,6 +41,7 @@ struct socks5_connection {
     uint16_t target_port;
 
     struct addrinfo *addr_list;
+    struct dns_resolution_job *dns_job;
 
     struct state_machine stm;
 

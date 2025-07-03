@@ -16,6 +16,71 @@
 #define NO_AUTH 0x00
 
 // --------------------------
+// Resolución DNS asíncrona
+// --------------------------
+
+static void* dns_resolution_thread(void* arg) {
+    struct dns_resolution_job *job = (struct dns_resolution_job*)arg;
+    
+    log(DEBUG, "Iniciando resolución DNS para %s:%d", job->hostname, job->port);
+    
+    struct addrinfo hints = {0};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    
+    char port_str[6];
+    snprintf(port_str, sizeof(port_str), "%d", job->port);
+    
+    // Esta es la llamada bloqueante que hacemos en el thread separado
+    job->error_code = getaddrinfo(job->hostname, port_str, &hints, &job->result);
+    
+    if (job->error_code == 0) {
+        log(DEBUG, "Resolución DNS exitosa para %s", job->hostname);
+    } else {
+        log(ERROR, "Error en resolución DNS para %s: %s", job->hostname, gai_strerror(job->error_code));
+    }
+    
+    // Notificar al selector que la resolución terminó
+    selector_notify_block(job->selector, job->conn->client_fd);
+    
+    return NULL;
+}
+
+void start_resolve_async(struct socks5_connection *conn, fd_selector selector) {
+    // Crear job de resolución
+    struct dns_resolution_job *job = malloc(sizeof(*job));
+    if (!job) {
+        log(ERROR, "No se pudo alocar memoria para job DNS");
+        return;
+    }
+    
+    job->conn = conn;
+    job->selector = selector;
+    strncpy(job->hostname, conn->target_host, sizeof(job->hostname) - 1);
+    job->hostname[sizeof(job->hostname) - 1] = '\0';
+    job->port = conn->target_port;
+    job->result = NULL;
+    job->error_code = 0;
+    
+    conn->dns_job = job;
+    
+    // Crear thread para resolución
+    int ret = pthread_create(&job->thread_id, NULL, dns_resolution_thread, job);
+    if (ret != 0) {
+        log(ERROR, "Error creando thread DNS: %s", strerror(ret));
+        free(job);
+        conn->dns_job = NULL;
+        return;
+    }
+    
+    // Detach el thread para que se limpie automáticamente
+    pthread_detach(job->thread_id);
+    
+    log(DEBUG, "Thread DNS iniciado para %s:%d", conn->target_host, conn->target_port);
+}
+
+// --------------------------
 // ST_AUTH
 // --------------------------
 
@@ -175,7 +240,7 @@ int socks5_process_request(struct socks5_connection *conn) {
     // Consumir los bytes leídos
     buffer_read_adv(b, total_len);
 
-    log(INFO, "Request SOCKS5: conectar a %s:%d", conn->target_host, conn->target_port);
+    log(INFO, "Request SOCKS5: conectar a %s:%d (tipo: %d)", conn->target_host, conn->target_port, atyp);
     return 1; // éxito
 }
 
@@ -201,46 +266,41 @@ int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_c
 }
 
 int socks5_finish_connection(struct socks5_connection *conn) {
+    struct addrinfo *addr_list = conn->addr_list;
+    if (!addr_list) {
+        log(ERROR, "No hay direcciones resueltas para conectar");
+        return -1;
+    }
+    
     // Crear socket para conexión remota
-    int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (remote_fd < 0) {
-        log(ERROR, "Error creando socket remoto: %s", strerror(errno));
-        return -1;
-    }
-    
-    // Resolver la dirección del destino
-    struct addrinfo hints = {0};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    
-    char port_str[6];
-    snprintf(port_str, sizeof(port_str), "%d", conn->target_port);
-    
-    struct addrinfo *result;
-    int gai_result = getaddrinfo(conn->target_host, port_str, &hints, &result);
-    if (gai_result != 0) {
-        log(ERROR, "Error resolviendo %s: %s", conn->target_host, gai_strerror(gai_result));
-        close(remote_fd);
-        return -1;
-    }
-    
-    // Intentar conectar con cada dirección disponible (modo bloqueante por simplicidad)
+    int remote_fd = -1;
     int connect_result = -1;
-    for (struct addrinfo *addr = result; addr != NULL; addr = addr->ai_next) {
+    
+    // Intentar conectar con cada dirección disponible
+    for (struct addrinfo *addr = addr_list; addr != NULL; addr = addr->ai_next) {
+        remote_fd = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+        if (remote_fd < 0) {
+            log(DEBUG, "Error creando socket para familia %d: %s", addr->ai_family, strerror(errno));
+            continue;
+        }
+        
         connect_result = connect(remote_fd, addr->ai_addr, addr->ai_addrlen);
         if (connect_result == 0) {
             // Conexión exitosa
+            char addr_str[128];
+            printSocketAddress(addr->ai_addr, addr_str);
+            log(INFO, "Conectado exitosamente a %s", addr_str);
             break;
         }
-        log(DEBUG, "Fallo conectando a una dirección, intentando siguiente...");
+        
+        log(DEBUG, "Fallo conectando a una dirección: %s, intentando siguiente...", strerror(errno));
+        close(remote_fd);
+        remote_fd = -1;
     }
     
-    freeaddrinfo(result);
-    
-    if (connect_result < 0) {
-        log(ERROR, "Error conectando a %s:%d: %s", conn->target_host, conn->target_port, strerror(errno));
-        close(remote_fd);
+    if (remote_fd < 0 || connect_result < 0) {
+        log(ERROR, "Error conectando a %s:%d: no se pudo conectar a ninguna dirección", 
+            conn->target_host, conn->target_port);
         return -1;
     }
     
