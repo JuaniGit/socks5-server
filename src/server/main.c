@@ -199,7 +199,14 @@ int main(int argc, const char* argv[]) {
     log(INFO, "Servidor SOCKS5 iniciado correctamente");
     log(INFO, "Esperando conexiones...");
 
-    time_t last_stats = time(NULL);    while (running) {
+    time_t last_stats = time(NULL);    
+    
+    // while (selector_select(selector) == SELECTOR_SUCCESS) {
+    //     ;
+    // }
+
+
+    while (running) {
         selector_status s = selector_select(selector);
         if (s != SELECTOR_SUCCESS && !(s == SELECTOR_IO && (errno == EINTR || errno == EAGAIN))) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));

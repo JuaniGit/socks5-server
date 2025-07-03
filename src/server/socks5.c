@@ -24,7 +24,11 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     size_t available;
     uint8_t *ptr = buffer_read_ptr(&b, &available);
 
+    printf("epic stuffs %d %d\n", *ptr, available);
+
     if (available < 2) {
+        printf("FALTAN DATOS: VERSION Y METODOS\n");
+        sleep(3);
         return 0; // faltan datos: versión y nmethods
     }
 
@@ -32,10 +36,12 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     uint8_t nmethods = ptr[1];
 
     if (ver != SOCKS5_VERSION) {
+        printf("VERSION INVALIDA\n");
         return -1; // versión inválida
     }
 
     if (available < 2 + nmethods) {
+        printf("AUN NO LLEGARON TODOS LOS METODOS\n");
         return 0; // aún no llegaron todos los métodos
     }
 
@@ -55,8 +61,10 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     buffer_read_adv(&b, 2 + nmethods);
 
     if (method == 0xFF) {
+        printf("NO HAY METODO ACEPTABLE\n");
         return -1; // no hay método aceptable
     }
 
+    printf("EXITO!!!\n");
     return 1; // éxito
 }

@@ -123,10 +123,28 @@ const struct fd_handler socks5_handler = {
 
 static unsigned on_auth_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    buffer *b = &conn->read_buf_client;
+
+    size_t space;
+    uint8_t *ptr = buffer_write_ptr(b, &space);
+
+    ssize_t n = recv(key->fd, ptr, space, 0);
+    if (n < 0) {
+        log(ERROR, "recv() falló");
+        return ST_DONE;
+    } else if (n == 0) {
+        log(INFO, "Conexión cerrada por el cliente");
+        return ST_DONE;
+    }
+
+    buffer_write_adv(b, n);  // avanzar el cursor de escritura
+
     int res = socks5_auth_negotiate(conn);
+    log(INFO, "res = %d", res);
     if (res < 0) return ST_DONE;     // error, cerrar conexión
     if (res == 0) return ST_AUTH;    // sigue esperando más datos
     // res == 1 significa negociación OK
+    log(INFO, "DONE AUTH READ");
     return ST_REQUEST;
 }
 
@@ -174,9 +192,9 @@ static unsigned on_stream_write(struct selector_key *key) {
 }
 
 static void on_done_arrival(unsigned state, struct selector_key *key) {
-    // struct socks5_connection *conn = key->data;
-    // selector_unregister_fd(key->s, conn->client_fd);
-    // if (conn->remote_fd != -1) {
-    //     selector_unregister_fd(key->s, conn->remote_fd);
-    // }
+    struct socks5_connection *conn = key->data;
+    selector_unregister_fd(key->s, conn->client_fd);
+    if (conn->remote_fd != -1) {
+        selector_unregister_fd(key->s, conn->remote_fd);
+    }
 }
