@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 #include "socks5.h"
+#include "users.h"
 #include "../shared/util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -105,15 +106,25 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
         return 0; // aún no llegaron todos los métodos
     }
 
-    // procesar los métodos y elegir uno (NO_AUTH si está disponible)
-    uint8_t method = 0xFF; // 0xFF = no acceptable method
+    // procesar los métodos y elegir uno
+    uint8_t method = SOCKS5_AUTH_NO_ACCEPTABLE; // 0xFF = no acceptable method
+    bool supports_no_auth = false;
+    bool supports_userpass = false;
+    
     for (uint8_t i = 0; i < nmethods; i++) {
         uint8_t m = ptr[2 + i];
-        if (m == NO_AUTH) {
-            method = NO_AUTH;
-            break;
+        if (m == SOCKS5_AUTH_NO_AUTH) {
+            // supports_no_auth = true; // deberia llamar a una función o algo que haga que el servidor imprima al cliente que requiere autenticarse con --proxy-user
+        } else if (m == SOCKS5_AUTH_USERPASS) {
+            supports_userpass = true;
         }
     }
+
+    // Preferir autenticación usuario/contraseña si está disponible
+    if (supports_userpass) method = SOCKS5_AUTH_USERPASS;
+    // } else if (supports_no_auth) { // y este else no va
+    //     // method = SOCKS5_AUTH_NO_AUTH;
+    // }
 
     conn->auth_method = method;
 
@@ -126,12 +137,12 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
         return -1;
     }
 
-    if (method == 0xFF) {
+    if (method == SOCKS5_AUTH_NO_ACCEPTABLE) {
         log(INFO, "No hay método de autenticación aceptable");
         return -1; // no hay método aceptable
     }
 
-    log(INFO, "Autenticación negociada exitosamente, método: %d", method);
+    log(INFO, "Autenticación negociada exitosamente, método: 0x%02x", method);
     return 1; // éxito
 }
 
@@ -146,6 +157,103 @@ int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method) {
     
     log(DEBUG, "Respuesta de autenticación enviada: versión=%d, método=%d", 
         SOCKS5_VERSION, method);
+    return 0;
+}
+
+// --------------------------
+// ST_AUTH_USERPASS - Implementación híbrida usando parser.c
+// --------------------------
+
+int socks5_userpass_auth(struct socks5_connection *conn) {
+    if (!conn || !conn->userpass_parser) {
+        log(ERROR, "socks5_userpass_auth: conexión o parser NULL");
+        return -1;
+    }
+    
+    buffer *b = &conn->read_buf_client;
+    
+    // Alimentar el parser con los datos disponibles
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(b, &available);
+    
+    if (available == 0) {
+        log(DEBUG, "No hay datos disponibles para autenticación usuario/contraseña");
+        return 0; // No hay datos disponibles
+    }
+    
+    log(DEBUG, "Procesando %zu bytes para autenticación usuario/contraseña usando parser híbrido", available);
+    
+    // Procesar byte por byte con el parser
+    for (size_t i = 0; i < available; i++) {
+        // Usar el parser.c para leer el byte
+        const struct parser_event *event = parser_feed(conn->userpass_parser, ptr[i]);
+        
+        if (!event) {
+            log(ERROR, "Parser devolvió evento NULL");
+            buffer_read_adv(b, i + 1);
+            socks5_send_userpass_response(conn, USERPASS_FAILURE);
+            return -1;
+        }
+        
+        // Procesar el evento con nuestra lógica manual
+        int result = userpass_process_event(&conn->userpass_data, event);
+        
+        if (result < 0) {
+            // Error en parsing
+            log(ERROR, "Error en parsing híbrido de autenticación usuario/contraseña");
+            buffer_read_adv(b, i + 1);
+            socks5_send_userpass_response(conn, USERPASS_FAILURE);
+            return -1;
+        } else if (result == 1) {
+            // Parsing completado
+            buffer_read_adv(b, i + 1);
+            
+            // Validar credenciales
+            const char *username = userpass_parser_get_username(&conn->userpass_data);
+            const char *password = userpass_parser_get_password(&conn->userpass_data);
+            
+            if (!username || !password) {
+                log(ERROR, "Credenciales NULL después del parsing");
+                socks5_send_userpass_response(conn, USERPASS_FAILURE);
+                return -1;
+            }
+            
+            if (users_validate(username, password)) {
+                // Autenticación exitosa
+                strncpy(conn->auth_username, username, sizeof(conn->auth_username) - 1);
+                conn->auth_username[sizeof(conn->auth_username) - 1] = '\0';
+                conn->authenticated = true;
+                
+                log(INFO, "Usuario '%s' autenticado exitosamente usando parser híbrido", username);
+                socks5_send_userpass_response(conn, USERPASS_SUCCESS);
+                return 1;
+            } else {
+                // Credenciales inválidas
+                log(INFO, "Credenciales inválidas para usuario '%s'", username);
+                socks5_send_userpass_response(conn, USERPASS_FAILURE);
+                return -1;
+            }
+        }
+        // Si result == 0, continúa procesando más bytes
+    }
+    
+    // Consumir todos los bytes procesados
+    buffer_read_adv(b, available);
+    
+    // Necesita más datos
+    return 0;
+}
+
+int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status) {
+    uint8_t response[2] = {USERPASS_VERSION, status};
+    
+    ssize_t sent = send(conn->client_fd, response, 2, MSG_NOSIGNAL);
+    if (sent != 2) {
+        log(ERROR, "Error enviando respuesta de autenticación usuario/contraseña: %s", strerror(errno));
+        return -1;
+    }
+    
+    log(DEBUG, "Respuesta de autenticación usuario/contraseña enviada: status=%d", status);
     return 0;
 }
 

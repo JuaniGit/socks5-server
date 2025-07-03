@@ -7,9 +7,12 @@
 #include "../selector.h"
 #include "../stm.h"
 #include "../buffer.h"
+#include "../parser.h"
+#include "userpass_parser.h"
 
 enum socks5_state {
     ST_AUTH = 0,
+    ST_AUTH_USERPASS,
     ST_REQUEST,
     ST_RESOLVING,
     ST_CONNECTING,
@@ -34,6 +37,15 @@ struct socks5_connection {
     int remote_fd;
 
     uint8_t auth_method;
+
+    // Datos de autenticación usuario/contraseña (usando parser híbrido)
+    char auth_username[256];
+    char auth_password[256];
+    bool authenticated;
+    
+    // Parser híbrido para autenticación usuario/contraseña
+    struct parser *userpass_parser;
+    struct userpass_parser_data userpass_data;
     
     // Información del destino
     uint8_t target_atyp;

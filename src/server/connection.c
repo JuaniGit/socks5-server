@@ -9,6 +9,7 @@
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
+static unsigned on_auth_userpass_read(struct selector_key *key);
 static unsigned on_request_read(struct selector_key *key);
 static unsigned on_resolving_block(struct selector_key *key);
 static unsigned on_connect_block(struct selector_key *key);
@@ -23,6 +24,10 @@ static const struct state_definition socks5_states[] = {
     [ST_AUTH] = {
         .state = ST_AUTH,
         .on_read_ready = on_auth_read,
+    },
+    [ST_AUTH_USERPASS] = {
+        .state = ST_AUTH_USERPASS,
+        .on_read_ready = on_auth_userpass_read,
     },
     [ST_REQUEST] = {
         .state = ST_REQUEST,
@@ -53,7 +58,10 @@ static const struct state_definition socks5_states[] = {
 
 struct socks5_connection *socks5_connection_new(int client_fd) {
     struct socks5_connection *conn = calloc(1, sizeof(*conn));
-    if (!conn) return NULL;
+    if (!conn) {
+        log(ERROR, "Error alocando memoria para conexión SOCKS5");
+        return NULL;
+    }
 
     conn->client_fd = client_fd;
     conn->remote_fd = -1;
@@ -62,16 +70,56 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     conn->remote_closed = false;
     conn->destroying = false;
     
-    buffer_init(&conn->read_buf_client, 4096, malloc(4096));
-    buffer_init(&conn->write_buf_client, 4096, malloc(4096));
-    buffer_init(&conn->read_buf_remote, 4096, malloc(4096));
-    buffer_init(&conn->write_buf_remote, 4096, malloc(4096));
+    // Inicializar buffers
+    uint8_t *read_client_buf = malloc(4096);
+    uint8_t *write_client_buf = malloc(4096);
+    uint8_t *read_remote_buf = malloc(4096);
+    uint8_t *write_remote_buf = malloc(4096);
     
+    if (!read_client_buf || !write_client_buf || !read_remote_buf || !write_remote_buf) {
+        log(ERROR, "Error alocando memoria para buffers");
+        free(read_client_buf);
+        free(write_client_buf);
+        free(read_remote_buf);
+        free(write_remote_buf);
+        free(conn);
+        return NULL;
+    }
+    
+    buffer_init(&conn->read_buf_client, 4096, read_client_buf);
+    buffer_init(&conn->write_buf_client, 4096, write_client_buf);
+    buffer_init(&conn->read_buf_remote, 4096, read_remote_buf);
+    buffer_init(&conn->write_buf_remote, 4096, write_remote_buf);
+    
+    // Inicializar parser híbrido de autenticación usuario/contraseña
+    log(DEBUG, "Inicializando parser híbrido de autenticación usuario/contraseña");
+
+    struct parser_definition *userpass_def = userpass_parser_definition();
+
+    // Verificar que la definición es válida
+    if (!userpass_def || userpass_def->states_count == 0 || !userpass_def->states || !userpass_def->states_n) {
+        log(ERROR, "Definición de parser inválida");
+        socks5_connection_destroy(conn);
+        return NULL;
+    }
+
+    conn->userpass_parser = parser_init(parser_no_classes(), userpass_def);
+    if (!conn->userpass_parser) {
+        log(ERROR, "Error inicializando parser híbrido de autenticación usuario/contraseña");
+        socks5_connection_destroy(conn);
+        return NULL;
+    }
+    
+    userpass_parser_data_init(&conn->userpass_data);
+    log(DEBUG, "Parser híbrido inicializado correctamente");
+    
+    // Inicializar máquina de estados
     conn->stm.initial = ST_AUTH;
     conn->stm.max_state = ST_DONE;
     conn->stm.states = socks5_states;
     stm_init(&conn->stm);
     
+    log(DEBUG, "Conexión SOCKS5 creada exitosamente (client_fd=%d)", client_fd);
     return conn;
 }
 
@@ -107,6 +155,13 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
         conn->dns_job = NULL;
     }
 
+    // Liberar parser híbrido
+    if (conn->userpass_parser) {
+        log(DEBUG, "Destruyendo parser híbrido");
+        parser_destroy(conn->userpass_parser);
+        conn->userpass_parser = NULL;
+    }
+
     // Liberar buffers
     if (conn->read_buf_client.data) {
         free(conn->read_buf_client.data);
@@ -126,6 +181,7 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     }
 
     free(conn);
+    log(DEBUG, "Conexión SOCKS5 destruida");
 }
 
 // ==============================
@@ -217,11 +273,58 @@ static unsigned on_auth_read(struct selector_key *key) {
     buffer_write_adv(b, n);  // avanzar el cursor de escritura
 
     int res = socks5_auth_negotiate(conn);
-    log(INFO, "res = %d", res);
     if (res < 0) return ST_DONE;     // error, cerrar conexión
     if (res == 0) return ST_AUTH;    // sigue esperando más datos
+    
     // res == 1 significa negociación OK
-    log(INFO, "DONE AUTH READ");
+    log(INFO, "Autenticación negociada, método: 0x%02x", conn->auth_method);
+    
+    // Decidir el siguiente estado según el método de autenticación
+    if (conn->auth_method == SOCKS5_AUTH_USERPASS) {
+        log(INFO, "Esperando credenciales de usuario/contraseña");
+        return ST_AUTH_USERPASS;
+    } else {
+        log(INFO, "Sin autenticación requerida, pasando a REQUEST");
+        return ST_REQUEST;
+    }
+}
+
+static unsigned on_auth_userpass_read(struct selector_key *key) {
+    struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
+    
+    // Verificar que el parser esté inicializado
+    if (!conn->userpass_parser) {
+        log(ERROR, "Parser híbrido no inicializado");
+        return ST_DONE;
+    }
+    
+    selector_set_interest_key(key, OP_READ);
+    buffer *b = &conn->read_buf_client;
+
+    size_t space;
+    uint8_t *ptr = buffer_write_ptr(b, &space);
+
+    ssize_t n = recv(key->fd, ptr, space, 0);
+    if (n < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return ST_AUTH_USERPASS; // No data available, stay in same state
+        }
+        log(ERROR, "recv() falló en auth userpass: %s", strerror(errno));
+        return ST_DONE;
+    } else if (n == 0) {
+        log(INFO, "Conexión cerrada por el cliente durante auth userpass");
+        return ST_DONE;
+    }
+
+    buffer_write_adv(b, n);
+
+    int res = socks5_userpass_auth(conn);
+    if (res < 0) return ST_DONE;           // error, cerrar conexión
+    if (res == 0) return ST_AUTH_USERPASS; // sigue esperando más datos
+    
+    // res == 1 significa autenticación exitosa
+    log(INFO, "Usuario autenticado exitosamente: %s", conn->auth_username);
     return ST_REQUEST;
 }
 
@@ -539,4 +642,3 @@ static void on_done_arrival(unsigned state, struct selector_key *key) {
 
     // El destroy lo maneja el close_handler cuando ambos extremos estén cerrados.
 }
-

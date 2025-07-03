@@ -14,6 +14,7 @@
 #include <time.h>
 
 #include "connection.h"
+#include "users.h"
 #include "../shared/util.h"
 #include "../shared/logger.h"
 #include "../selector.h"
@@ -166,6 +167,16 @@ int main(int argc, const char* argv[]) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     signal(SIGPIPE, SIG_IGN);
+
+    // Inicializar sistema de usuarios
+    if (!users_init(NULL)) {
+        log(FATAL, "Error inicializando sistema de usuarios");
+        return EXIT_FAILURE;
+    }
+
+    // Mostrar mensaje de bienvenida
+    log(INFO, "Sistema de usuarios inicializado");
+    printf("%s\n", users_get_welcome_message());
 
     // Inicializar selector
     struct selector_init conf = {

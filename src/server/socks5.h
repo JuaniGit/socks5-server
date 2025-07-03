@@ -33,6 +33,11 @@
 #define SOCKS5_REP_COMMAND_NOT_SUPPORTED 0x07
 #define SOCKS5_REP_ADDRESS_TYPE_NOT_SUPPORTED 0x08
 
+// Constantes para autenticación usuario/contraseña (RFC1929)
+#define USERPASS_VERSION 0x01
+#define USERPASS_SUCCESS 0x00
+#define USERPASS_FAILURE 0x01
+
 // Ejecuta la negociación de autenticación (estado ST_AUTH)
 // Devuelve 0 si fue exitosa, -1 si hubo error (se envía respuesta de error al cliente).
 int socks5_auth_negotiate(struct socks5_connection *conn);
@@ -51,5 +56,9 @@ void start_resolve_async(struct socks5_connection *conn, fd_selector selector);
 // Nuevas funciones
 int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method);
 int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_code);
+
+// Funciones para autenticación usuario/contraseña
+int socks5_userpass_auth(struct socks5_connection *conn);
+int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status);
 
 #endif
