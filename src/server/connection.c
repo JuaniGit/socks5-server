@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -123,6 +124,7 @@ const struct fd_handler socks5_handler = {
 
 static unsigned on_auth_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    selector_set_interest_key(key, OP_READ);
     buffer *b = &conn->read_buf_client;
 
     size_t space;
@@ -149,12 +151,42 @@ static unsigned on_auth_read(struct selector_key *key) {
 }
 
 static unsigned on_request_read(struct selector_key *key) {
-    // struct socks5_connection *conn = key->data;
-    // if (socks5_process_request(conn) < 0) return ST_DONE;
+    struct socks5_connection *conn = key->data;
+    selector_set_interest_key(key, OP_READ);
+    
+    buffer *b = &conn->read_buf_client;
+    size_t available;
+    buffer_read_ptr(b, &available);
+    
+    // If no data available, try to read more
+    if (available == 0) {
+        size_t space;
+        uint8_t *ptr = buffer_write_ptr(b, &space);
+        
+        ssize_t n = recv(key->fd, ptr, space, 0);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                return ST_REQUEST; // No data available, stay in same state
+            }
+            log(ERROR, "recv() falló en request: %s", strerror(errno));
+            return ST_DONE;
+        } else if (n == 0) {
+            log(INFO, "Conexión cerrada por el cliente durante request");
+            return ST_DONE;
+        }
+        
+        buffer_write_adv(b, n);
+    }
+    
+    log(DEBUG, "Procesando request SOCKS5");
+    int res = socks5_process_request(conn);
 
-    // // lanzar resolución async (ej: con hilo o pool)
-    // start_resolve_async(conn);  // luego llamará a selector_notify_block()
-    // return ST_RESOLVING;
+    if (res < 0) return ST_DONE;     // error, cerrar conexión
+    if (res == 0) return ST_REQUEST; // sigue esperando más datos
+    
+    log(INFO, "Request procesado exitosamente");
+    // res == 1 significa request OK, proceder a resolución
+    return ST_CONNECTING;
 }
 
 static unsigned on_resolving_block(struct selector_key *key) {

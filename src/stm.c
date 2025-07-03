@@ -4,6 +4,7 @@
  */
 #include <stdlib.h>
 #include "stm.h"
+#include <stdio.h>
 
 #define N(x) (sizeof(x)/sizeof((x)[0]))
 
@@ -52,14 +53,32 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
 
 unsigned
 stm_handler_read(struct state_machine *stm, struct selector_key *key) {
+    printf("ME LLAMARON RING RING! :)\n");
     handle_first(stm, key);
-    if(stm->current->on_read_ready == 0) {
-        abort();
-    }
-    const unsigned int ret = stm->current->on_read_ready(key);
-    jump(stm, ret, key);
+    
+    unsigned current_state = stm->current->state;
+    
+    do {
+        if(stm->current->on_read_ready == 0) {
+            abort();
+        }
+        const unsigned int ret = stm->current->on_read_ready(key);
+        
+        if(ret == current_state) {
+            // No state change, we're done
+            break;
+        }
+        
+        // State changed, jump to new state
+        jump(stm, ret, key);
+        current_state = ret;
+        
+        // Continue processing in the new state if it has a read handler
+        // This allows processing pipelined data (auth + request in same packet)
+        
+    } while(stm->current->on_read_ready != NULL);
 
-    return ret;
+    return current_state;
 }
 
 unsigned

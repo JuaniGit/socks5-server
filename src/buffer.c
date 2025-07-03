@@ -67,6 +67,16 @@ buffer_read_adv(buffer *b, const ssize_t bytes) {
     }
 }
 
+inline bool 
+buffer_read_bytes(buffer *b, uint8_t dest[], size_t bytes) {
+    for(int i = 0; i < bytes; i++) {
+        if(!buffer_can_read(b)) return false;
+        dest[i] = *b->read;
+        buffer_read_adv(b, 1);
+    }
+    return true;
+}
+
 inline uint8_t
 buffer_read(buffer *b) {
     uint8_t ret;

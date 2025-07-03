@@ -22,6 +22,11 @@ struct socks5_connection {
     int remote_fd;
 
     uint8_t auth_method;
+    
+    // Información del destino
+    uint8_t target_atyp;
+    char target_host[256];
+    uint16_t target_port;
 
     struct addrinfo *addr_list;
 
@@ -38,7 +43,6 @@ struct socks5_connection {
 
     // Direcciones y buffers temporales
     char client_address_str[128];
-
 
     // TODO: despues se van a agregar más flags y etc
 };

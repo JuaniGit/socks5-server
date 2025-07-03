@@ -78,41 +78,49 @@ static void accept_handler(struct selector_key* key) {
  * Inicializa socket servidor
  */
 static int setup_server_socket(int port) {
+    // crea el socket con ipv6
     int server_fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
     if (server_fd < 0) {
         log(FATAL, "Error creando socket: %s", strerror(errno));
         return -1;
     }
 
+    // permite reutilizar la direccion (evita "address already in use")
     int opt = 1;
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
+    // configura el socket default ipv6 pero acepta ipv4 al estar en 0 ipv6only
     int ipv6only = 0;
     setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &ipv6only, sizeof(ipv6only));
 
+    // configura el puerto y la dirección
     struct sockaddr_in6 addr = {0};
     addr.sin6_family = AF_INET6;
     addr.sin6_port = htons(port);
     addr.sin6_addr = in6addr_any;
 
+    // conecta al socket con esa dirección y puerto
     if (bind(server_fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         log(FATAL, "Error en bind(): %s", strerror(errno));
         close(server_fd);
         return -1;
     }
 
+    // poner al socket en modo escucha
     if (listen(server_fd, MAX_PENDING_CONNECTION_REQUESTS) < 0) {
         log(FATAL, "Error en listen(): %s", strerror(errno));
         close(server_fd);
         return -1;
     }
 
+    // hacemos al socket no bloqueante
     if (selector_fd_set_nio(server_fd) < 0) {
         log(FATAL, "No se pudo poner el socket en no bloqueante: %s", strerror(errno));
         close(server_fd);
         return -1;
     }
 
+    // retorno la dirección del socket
     char addr_str[128];
     printSocketAddress((struct sockaddr*)&addr, addr_str);
     log(INFO, "Servidor escuchando en %s", addr_str);
@@ -200,10 +208,6 @@ int main(int argc, const char* argv[]) {
     log(INFO, "Esperando conexiones...");
 
     time_t last_stats = time(NULL);    
-    
-    // while (selector_select(selector) == SELECTOR_SUCCESS) {
-    //     ;
-    // }
 
 
     while (running) {
