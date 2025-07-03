@@ -53,6 +53,7 @@ struct socks5_connection {
     // Flags de control
     bool client_closed;
     bool remote_closed;
+    bool destroying;  // Flag para evitar double cleanup
 
     // Direcciones y buffers temporales
     char client_address_str[128];

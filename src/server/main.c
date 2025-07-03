@@ -216,9 +216,13 @@ int main(int argc, const char* argv[]) {
 
     while (running) {
         selector_status s = selector_select(selector);
-        if (s != SELECTOR_SUCCESS && !(s == SELECTOR_IO && (errno == EINTR || errno == EAGAIN))) {
+        if (s == SELECTOR_IO && errno == EBADF) {
+            // log(ERROR, "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
+            // Continúa, no se cae el servidor
+            continue;
+        } else if (s != SELECTOR_SUCCESS && !(errno == EINTR || errno == EAGAIN)) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));
-            break;
+            break;  // Solo cortás por errores graves
         }
 
         time_t now = time(NULL);

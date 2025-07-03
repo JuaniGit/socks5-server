@@ -58,6 +58,10 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     conn->client_fd = client_fd;
     conn->remote_fd = -1;
     conn->dns_job = NULL;
+    conn->client_closed = false;
+    conn->remote_closed = false;
+    conn->destroying = false;
+    
     buffer_init(&conn->read_buf_client, 4096, malloc(4096));
     buffer_init(&conn->write_buf_client, 4096, malloc(4096));
     buffer_init(&conn->read_buf_remote, 4096, malloc(4096));
@@ -72,24 +76,54 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
 }
 
 void socks5_connection_destroy(struct socks5_connection *conn) {
-    if (!conn) return;
-
-    if (conn->client_fd != -1) close(conn->client_fd);
-    if (conn->remote_fd != -1) close(conn->remote_fd);
-
-    if (conn->addr_list) freeaddrinfo(conn->addr_list);
+    if (!conn || conn->destroying) return;
     
+    conn->destroying = true;
+    log(DEBUG, "Destruyendo conexión SOCKS5 (client_fd=%d, remote_fd=%d)", conn->client_fd, conn->remote_fd);
+
+    // Cerrar file descriptors solo si no están cerrados
+    if (conn->client_fd != -1) {
+        close(conn->client_fd);
+        conn->client_fd = -1;
+    }
+    if (conn->remote_fd != -1) {
+        close(conn->remote_fd);
+        conn->remote_fd = -1;
+    }
+
+    // Liberar addrinfo
+    if (conn->addr_list) {
+        freeaddrinfo(conn->addr_list);
+        conn->addr_list = NULL;
+    }
+    
+    // Liberar DNS job
     if (conn->dns_job) {
-        if (conn->dns_job->result) {
+        // Solo liberar result si no se transfirió a addr_list
+        if (conn->dns_job->result && conn->dns_job->result != conn->addr_list) {
             freeaddrinfo(conn->dns_job->result);
         }
         free(conn->dns_job);
+        conn->dns_job = NULL;
     }
 
-    free(conn->read_buf_client.data);
-    free(conn->write_buf_client.data);
-    free(conn->read_buf_remote.data);
-    free(conn->write_buf_remote.data);
+    // Liberar buffers
+    if (conn->read_buf_client.data) {
+        free(conn->read_buf_client.data);
+        conn->read_buf_client.data = NULL;
+    }
+    if (conn->write_buf_client.data) {
+        free(conn->write_buf_client.data);
+        conn->write_buf_client.data = NULL;
+    }
+    if (conn->read_buf_remote.data) {
+        free(conn->read_buf_remote.data);
+        conn->read_buf_remote.data = NULL;
+    }
+    if (conn->write_buf_remote.data) {
+        free(conn->write_buf_remote.data);
+        conn->write_buf_remote.data = NULL;
+    }
 
     free(conn);
 }
@@ -100,24 +134,55 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
 
 static void socks5_read_handler(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return;
     stm_handler_read(&conn->stm, key);
 }
 
 static void socks5_write_handler(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return;
     stm_handler_write(&conn->stm, key);
 }
 
 static void socks5_block_handler(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return;
     stm_handler_block(&conn->stm, key);
 }
 
 static void socks5_close_handler(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
-    stm_handler_close(&conn->stm, key);
-    socks5_connection_destroy(conn);
+    if (!conn || conn->destroying) return;
+
+    log(DEBUG, "Close handler llamado para fd=%d", key->fd);
+
+    // Marcar qué extremo cerró
+    if (key->fd == conn->client_fd) {
+        conn->client_closed = true;
+        log(DEBUG, "Cliente cerró la conexión");
+    } else if (key->fd == conn->remote_fd) {
+        conn->remote_closed = true;
+        log(DEBUG, "Servidor remoto cerró la conexión");
+    }
+
+    // Desregistrar el otro fd si no lo está aún
+    if (!conn->client_closed && conn->client_fd != -1) {
+        selector_unregister_fd(key->s, conn->client_fd);
+        conn->client_closed = true;
+    }
+
+    if (!conn->remote_closed && conn->remote_fd != -1) {
+        selector_unregister_fd(key->s, conn->remote_fd);
+        conn->remote_closed = true;
+    }
+
+    // Cerrar si ambos extremos están cerrados
+    if (conn->client_closed && conn->remote_closed) {
+        log(DEBUG, "Ambos extremos cerrados. Liberando conexión");
+        socks5_connection_destroy(conn);
+    }
 }
+
 
 const struct fd_handler socks5_handler = {
     .handle_read = socks5_read_handler,
@@ -132,6 +197,8 @@ const struct fd_handler socks5_handler = {
 
 static unsigned on_auth_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
+    
     selector_set_interest_key(key, OP_READ);
     buffer *b = &conn->read_buf_client;
 
@@ -160,6 +227,8 @@ static unsigned on_auth_read(struct selector_key *key) {
 
 static unsigned on_request_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
+    
     selector_set_interest_key(key, OP_READ);
     
     buffer *b = &conn->read_buf_client;
@@ -262,6 +331,7 @@ static unsigned on_request_read(struct selector_key *key) {
 
 static unsigned on_resolving_block(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
     
     if (!conn->dns_job) {
         log(ERROR, "on_resolving_block llamado sin job DNS");
@@ -274,9 +344,9 @@ static unsigned on_resolving_block(struct selector_key *key) {
         return ST_DONE;
     }
     
-    // Resolución exitosa
+    // Resolución exitosa - transferir ownership correctamente
     conn->addr_list = conn->dns_job->result;
-    conn->dns_job->result = NULL; // Transferir ownership
+    conn->dns_job->result = NULL; // Importante: evitar double free
     
     log(INFO, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
     
@@ -306,6 +376,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
 
 static unsigned on_connect_block(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
     
     // Intentar conectar al servidor remoto
     if (socks5_finish_connection(conn) < 0) {
@@ -333,6 +404,7 @@ static unsigned on_connect_block(struct selector_key *key) {
 
 static unsigned on_stream_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
     
     int from_fd = key->fd;
     int to_fd;
@@ -404,6 +476,7 @@ static unsigned on_stream_read(struct selector_key *key) {
 
 static unsigned on_stream_write(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
+    if (conn->destroying) return ST_DONE;
     
     int to_fd = key->fd;
     buffer *buf;
@@ -452,8 +525,18 @@ static unsigned on_stream_write(struct selector_key *key) {
 
 static void on_done_arrival(unsigned state, struct selector_key *key) {
     struct socks5_connection *conn = key->data;
-    selector_unregister_fd(key->s, conn->client_fd);
-    if (conn->remote_fd != -1) {
-        selector_unregister_fd(key->s, conn->remote_fd);
+    log(DEBUG, "Entrando en estado DONE");
+
+    if (!conn->client_closed && conn->client_fd != -1) {
+        selector_unregister_fd(key->s, conn->client_fd);
+        conn->client_closed = true;
     }
+
+    if (!conn->remote_closed && conn->remote_fd != -1) {
+        selector_unregister_fd(key->s, conn->remote_fd);
+        conn->remote_closed = true;
+    }
+
+    // El destroy lo maneja el close_handler cuando ambos extremos estén cerrados.
 }
+

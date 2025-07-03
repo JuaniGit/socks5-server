@@ -53,7 +53,6 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
 
 unsigned
 stm_handler_read(struct state_machine *stm, struct selector_key *key) {
-    printf("ME LLAMARON RING RING! :)\n");
     handle_first(stm, key);
     
     unsigned current_state = stm->current->state;
