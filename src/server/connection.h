@@ -4,6 +4,7 @@
 #define _POSIX_C_SOURCE 200112L
 #include <netdb.h>
 #include <pthread.h>
+#include <sys/time.h>
 #include "../selector.h"
 #include "../stm.h"
 #include "../buffer.h"
@@ -69,6 +70,9 @@ struct socks5_connection {
 
     // Direcciones y buffers temporales
     char client_address_str[128];
+    
+    // Timestamp para métricas
+    struct timeval start_time;
 
     // TODO: despues se van a agregar más flags y etc
 };

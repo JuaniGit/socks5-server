@@ -113,18 +113,13 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     
     for (uint8_t i = 0; i < nmethods; i++) {
         uint8_t m = ptr[2 + i];
-        if (m == SOCKS5_AUTH_NO_AUTH) {
-            // supports_no_auth = true; // deberia llamar a una función o algo que haga que el servidor imprima al cliente que requiere autenticarse con --proxy-user
-        } else if (m == SOCKS5_AUTH_USERPASS) {
+        if (m == SOCKS5_AUTH_USERPASS) {
             supports_userpass = true;
         }
     }
 
     // Preferir autenticación usuario/contraseña si está disponible
     if (supports_userpass) method = SOCKS5_AUTH_USERPASS;
-    // } else if (supports_no_auth) { // y este else no va
-    //     // method = SOCKS5_AUTH_NO_AUTH;
-    // }
 
     conn->auth_method = method;
 

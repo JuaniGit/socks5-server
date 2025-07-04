@@ -15,6 +15,7 @@
 
 #include "connection.h"
 #include "users.h"
+#include "metrics.h"
 #include "../shared/util.h"
 #include "../shared/logger.h"
 #include "../selector.h"
@@ -22,11 +23,6 @@
 #define MAX_PENDING_CONNECTION_REQUESTS 20
 #define SOURCE_PORT 1080
 #define MAX_CONNECTIONS 1024
-
-// Variables globales para estadísticas
-static size_t total_connections = 0;
-static size_t current_connections = 0;
-static size_t total_bytes_transferred = 0;
 
 /**
  * Handler para nuevas conexiones entrantes
@@ -71,12 +67,13 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
-    total_connections++;
-    current_connections++;
+    // Registrar métricas
+    metrics_connection_started();
 
     char client_addr_str[128];
     printSocketAddress((struct sockaddr*)&client_addr, client_addr_str);
-    log(INFO, "Cliente registrado desde %s (fd=%d). Conexiones activas: %zu", client_addr_str, client_fd, current_connections);
+    log(INFO, "Cliente registrado desde %s (fd=%d). Conexiones activas: %lu", 
+        client_addr_str, client_fd, metrics_get_current_connections());
 }
 
 /**
@@ -134,17 +131,6 @@ static int setup_server_socket(int port) {
 }
 
 /**
- * Estadísticas
- */
-static void print_stats(void) {
-    log(INFO, "=== Estadísticas del Servidor ===");
-    log(INFO, "Conexiones totales: %zu", total_connections);
-    log(INFO, "Conexiones activas: %zu", current_connections);
-    log(INFO, "Bytes transferidos: %zu", total_bytes_transferred);
-    log(INFO, "=================================");
-}
-
-/**
  * Señales
  */
 static volatile int running = 1;
@@ -168,9 +154,16 @@ int main(int argc, const char* argv[]) {
     signal(SIGTERM, signal_handler);
     signal(SIGPIPE, SIG_IGN);
 
+    // Inicializar sistema de métricas
+    if (!metrics_init()) {
+        log(FATAL, "Error inicializando sistema de métricas");
+        return EXIT_FAILURE;
+    }
+
     // Inicializar sistema de usuarios
     if (!users_init(NULL)) {
         log(FATAL, "Error inicializando sistema de usuarios");
+        metrics_destroy();
         return EXIT_FAILURE;
     }
 
@@ -186,21 +179,24 @@ int main(int argc, const char* argv[]) {
 
     if (selector_init(&conf) != SELECTOR_SUCCESS) {
         log(FATAL, "No se pudo inicializar el selector");
+        metrics_destroy();
         return EXIT_FAILURE;
     }
 
     fd_selector selector = selector_new(MAX_CONNECTIONS);
     if (selector == NULL) {
         log(FATAL, "No se pudo crear el selector");
+        metrics_destroy();
         return EXIT_FAILURE;
     }
 
     int server_fd = setup_server_socket(SOURCE_PORT);
     if (server_fd < 0) {
-		if (selector != NULL) {
-			selector_destroy(selector);
-			selector_close();
-		}
+        if (selector != NULL) {
+            selector_destroy(selector);
+            selector_close();
+        }
+        metrics_destroy();
         return EXIT_FAILURE;
     }
 
@@ -216,6 +212,7 @@ int main(int argc, const char* argv[]) {
         close(server_fd);
         selector_destroy(selector);
         selector_close();
+        metrics_destroy();
         return EXIT_FAILURE;
     }
 
@@ -224,11 +221,10 @@ int main(int argc, const char* argv[]) {
 
     time_t last_stats = time(NULL);    
 
-
     while (running) {
         selector_status s = selector_select(selector);
         if (s == SELECTOR_IO && errno == EBADF) {
-            // log(ERROR, "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
+            log(ERROR, "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
             // Continúa, no se cae el servidor
             continue;
         } else if (s != SELECTOR_SUCCESS && !(errno == EINTR || errno == EAGAIN)) {
@@ -238,17 +234,18 @@ int main(int argc, const char* argv[]) {
 
         time_t now = time(NULL);
         if (now - last_stats >= 60) {
-            print_stats();
+            metrics_print_summary();
             last_stats = now;
         }
     }
 
     log(INFO, "Servidor finalizando...");
-    print_stats();
+    metrics_print_summary();
 
     close(server_fd);
     selector_destroy(selector);
     selector_close();
+    metrics_destroy();
     log(INFO, "Recursos liberados. Hasta luego.");
     return EXIT_SUCCESS;
 }

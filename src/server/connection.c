@@ -2,10 +2,12 @@
 #include "connection.h"
 #include "../shared/logger.h"
 #include "socks5.h"
+#include "metrics.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sys/time.h>
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -53,6 +55,14 @@ static const struct state_definition socks5_states[] = {
 };
 
 // ==============================
+// Funciones auxiliares
+// ==============================
+
+static double get_time_diff_ms(struct timeval *start, struct timeval *end) {
+    return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_usec - start->tv_usec) / 1000.0;
+}
+
+// ==============================
 // Creación y destrucción
 // ==============================
 
@@ -69,6 +79,9 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     conn->client_closed = false;
     conn->remote_closed = false;
     conn->destroying = false;
+    
+    // Inicializar timestamp para métricas
+    gettimeofday(&conn->start_time, NULL);
     
     // Inicializar buffers
     uint8_t *read_client_buf = malloc(4096);
@@ -128,6 +141,15 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     
     conn->destroying = true;
     log(DEBUG, "Destruyendo conexión SOCKS5 (client_fd=%d, remote_fd=%d)", conn->client_fd, conn->remote_fd);
+
+    // Calcular tiempo de conexión para métricas
+    struct timeval end_time;
+    gettimeofday(&end_time, NULL);
+    double connection_time_ms = get_time_diff_ms(&conn->start_time, &end_time);
+    
+    // Registrar fin de conexión en métricas
+    bool successful = conn->authenticated && (conn->remote_fd != -1);
+    metrics_connection_ended(successful, connection_time_ms);
 
     // Cerrar file descriptors solo si no están cerrados
     if (conn->client_fd != -1) {
@@ -279,6 +301,9 @@ static unsigned on_auth_read(struct selector_key *key) {
     // res == 1 significa negociación OK
     log(INFO, "Autenticación negociada, método: 0x%02x", conn->auth_method);
     
+    // Registrar método de autenticación en métricas
+    metrics_auth_method_used(conn->auth_method, true, NULL);
+    
     // Decidir el siguiente estado según el método de autenticación
     if (conn->auth_method == SOCKS5_AUTH_USERPASS) {
         log(INFO, "Esperando credenciales de usuario/contraseña");
@@ -320,11 +345,19 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
     buffer_write_adv(b, n);
 
     int res = socks5_userpass_auth(conn);
-    if (res < 0) return ST_DONE;           // error, cerrar conexión
+    if (res < 0) {
+        // Registrar fallo de autenticación en métricas
+        metrics_auth_method_used(SOCKS5_AUTH_USERPASS, false, NULL);
+        return ST_DONE;           // error, cerrar conexión
+    }
     if (res == 0) return ST_AUTH_USERPASS; // sigue esperando más datos
     
     // res == 1 significa autenticación exitosa
     log(INFO, "Usuario autenticado exitosamente: %s", conn->auth_username);
+    
+    // Registrar éxito de autenticación en métricas
+    metrics_auth_method_used(SOCKS5_AUTH_USERPASS, true, conn->auth_username);
+    
     return ST_REQUEST;
 }
 
@@ -365,6 +398,9 @@ static unsigned on_request_read(struct selector_key *key) {
     if (res == 0) return ST_REQUEST; // sigue esperando más datos
     
     log(INFO, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
+    
+    // Registrar tipo de request en métricas
+    metrics_request_type(conn->target_atyp);
     
     // Decidir si necesitamos resolución DNS o podemos conectar directamente
     if (conn->target_atyp == SOCKS5_ATYP_DOMAINNAME) {
@@ -410,6 +446,7 @@ static unsigned on_request_read(struct selector_key *key) {
         // Conectar directamente aquí también
         if (socks5_finish_connection(conn) < 0) {
             log(ERROR, "Error conectando al servidor remoto");
+            metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
             socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
             return ST_DONE;
         }
@@ -443,6 +480,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     
     if (conn->dns_job->error_code != 0) {
         log(ERROR, "Error en resolución DNS: %s", gai_strerror(conn->dns_job->error_code));
+        metrics_error_occurred(METRICS_ERROR_DNS_RESOLUTION);
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
         return ST_DONE;
     }
@@ -456,6 +494,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     // Hacer la conexión directamente aquí
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "Error conectando al servidor remoto");
+        metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
         return ST_DONE;
     }
@@ -484,6 +523,7 @@ static unsigned on_connect_block(struct selector_key *key) {
     // Intentar conectar al servidor remoto
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "Error conectando al servidor remoto");
+        metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
         return ST_DONE;
     }
@@ -560,8 +600,17 @@ static unsigned on_stream_read(struct selector_key *key) {
         ssize_t sent = send(to_fd, data, available, MSG_NOSIGNAL);
         if (sent > 0) {
             buffer_read_adv(from_buf, sent);
-            // Actualizar estadísticas
-            // TODO: agregar contador de bytes transferidos
+            
+            // Registrar bytes transferidos en métricas
+            if (from_fd == conn->client_fd) {
+                // Cliente -> Remoto
+                metrics_bytes_transferred(n, 0, 0, sent);
+                // Cliente -> Remoto
+                metrics_bytes_transferred(n, 0, 0, sent);
+            } else {
+                // Remoto -> Cliente
+                metrics_bytes_transferred(0, sent, n, 0);
+            }
         } else if (sent < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
             log(ERROR, "Error en send(): %s", strerror(errno));
             return ST_DONE;
@@ -614,6 +663,15 @@ static unsigned on_stream_write(struct selector_key *key) {
     }
     
     buffer_read_adv(buf, sent);
+    
+    // Registrar bytes transferidos en métricas
+    if (to_fd == conn->client_fd) {
+        // Remoto -> Cliente
+        metrics_bytes_transferred(0, sent, 0, 0);
+    } else {
+        // Cliente -> Remoto
+        metrics_bytes_transferred(0, 0, 0, sent);
+    }
     
     // Verificar si se escribió todo
     buffer_read_ptr(buf, &available);
