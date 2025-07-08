@@ -84,7 +84,7 @@ int admin_process_auth(struct admin_connection *conn);
 int admin_process_command(struct admin_connection *conn);
 int admin_send_response(struct admin_connection *conn, uint8_t response_code, 
                        const uint8_t *data, uint16_t data_len);
-sint admin_handle_list_users(struct admin_connection *conn);
+int admin_handle_list_users(struct admin_connection *conn);
 int admin_handle_add_user(struct admin_connection *conn, const uint8_t *data, uint16_t len);
 int admin_handle_del_user(struct admin_connection *conn, const uint8_t *data, uint16_t len);
 int admin_handle_get_metrics(struct admin_connection *conn);
