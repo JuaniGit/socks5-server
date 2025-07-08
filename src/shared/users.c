@@ -8,7 +8,6 @@
 struct user_credentials users_db[MAX_USERS];
 size_t users_count = 0;
 
-// Buffer para mensaje de bienvenida
 static char welcome_message[2048];
 
 static void generate_welcome_message(void) {
@@ -46,33 +45,27 @@ bool users_init(const char *csv_file) {
     while (fgets(line, sizeof(line), file) && users_count < MAX_USERS) {
         line_num++;
         
-        // Remover salto de línea
         line[strcspn(line, "\r\n")] = '\0';
         
-        // Saltar líneas vacías o comentarios
         if (line[0] == '\0' || line[0] == '#') {
             continue;
         }
         
-        // Buscar el separador ';'
         char *separator = strchr(line, ';');
         if (!separator) {
             log(ERROR, "Formato inválido en línea %zu del archivo %s", line_num, csv_file);
             continue;
         }
         
-        // Separar username y password
         *separator = '\0';
         char *username = line;
         char *password = separator + 1;
         
-        // Validar longitudes
         if (strlen(username) > MAX_USERNAME_LEN || strlen(password) > MAX_PASSWORD_LEN) {
             log(ERROR, "Usuario o contraseña demasiado largo en línea %zu", line_num);
             continue;
         }
         
-        // Agregar usuario
         strncpy(users_db[users_count].username, username, MAX_USERNAME_LEN);
         users_db[users_count].username[MAX_USERNAME_LEN] = '\0';
         strncpy(users_db[users_count].password, password, MAX_PASSWORD_LEN);
@@ -122,7 +115,6 @@ bool users_add(const char *username, const char *password) {
         return false;
     }
     
-    // Verificar si el usuario ya existe
     for (size_t i = 0; i < users_count; i++) {
         if (strcmp(users_db[i].username, username) == 0) {
             // Usuario existe, actualizar contraseña
@@ -135,7 +127,6 @@ bool users_add(const char *username, const char *password) {
         }
     }
     
-    // Agregar nuevo usuario
     strncpy(users_db[users_count].username, username, MAX_USERNAME_LEN);
     users_db[users_count].username[MAX_USERNAME_LEN] = '\0';
     strncpy(users_db[users_count].password, password, MAX_PASSWORD_LEN);

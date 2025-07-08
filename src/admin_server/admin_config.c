@@ -2,7 +2,7 @@
 #include "../shared/logger.h"
 #include <pthread.h>
 
-// Configuración global del servidor
+// config global del servidor
 static struct admin_server_config global_config = {
     .max_connections = 500,
     .buffer_size = 4096,

@@ -6,14 +6,17 @@
 #include <unistd.h>
 #include <getopt.h>
 
+#define SOCKS_PORT 1080
+#define MANAGEMENT_PORT 8080
+
 void config_init(struct server_config *config) {
     memset(config, 0, sizeof(*config));
     
-    // Valores por defecto
-    strcpy(config->socks_address, "0.0.0.0");        // Todas las interfaces
-    strcpy(config->management_address, "127.0.0.1");  // Solo loopback
-    config->socks_port = 1080;                        // Puerto SOCKS por defecto
-    config->management_port = 8080;                   // Puerto admin por defecto
+    // defaults
+    strcpy(config->socks_address, "0.0.0.0");         // todas las interfaces
+    strcpy(config->management_address, "127.0.0.1");  // solo loopback
+    config->socks_port = SOCKS_PORT;                
+    config->management_port = MANAGEMENT_PORT;     
     config->cli_users_count = 0;
     config->show_help = false;
     config->show_version = false;
@@ -87,7 +90,6 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
         return -1;
     }
     
-    // Agregar usuario
     CliUsers *user = &config->cli_users[config->cli_users_count];
     strncpy(user->username, user_pass, username_len);
     user->username[username_len] = '\0';
@@ -103,7 +105,6 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
 int config_parse_args(struct server_config *config, int argc, char *argv[]) {
     int opt;
     
-    // getopt_long para opciones POSIX
     while ((opt = getopt(argc, argv, "hl:NL:p:P:u:v")) != -1) {
         switch (opt) {
             case 'h':

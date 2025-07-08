@@ -80,10 +80,8 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     conn->remote_closed = false;
     conn->destroying = false;
     
-    // Inicializar timestamp para métricas
     gettimeofday(&conn->start_time, NULL);
     
-    // Inicializar buffers
     uint8_t *read_client_buf = malloc(4096);
     uint8_t *write_client_buf = malloc(4096);
     uint8_t *read_remote_buf = malloc(4096);
@@ -104,12 +102,10 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     buffer_init(&conn->read_buf_remote, 4096, read_remote_buf);
     buffer_init(&conn->write_buf_remote, 4096, write_remote_buf);
     
-    // Inicializar parser híbrido de autenticación usuario/contraseña
     log(DEBUG, "Inicializando parser híbrido de autenticación usuario/contraseña");
 
     struct parser_definition *userpass_def = userpass_parser_definition();
 
-    // Verificar que la definición es válida
     if (!userpass_def || userpass_def->states_count == 0 || !userpass_def->states || !userpass_def->states_n) {
         log(ERROR, "Definición de parser inválida");
         socks5_connection_destroy(conn);
@@ -126,7 +122,6 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     userpass_parser_data_init(&conn->userpass_data);
     log(DEBUG, "Parser híbrido inicializado correctamente");
     
-    // Inicializar máquina de estados
     conn->stm.initial = ST_AUTH;
     conn->stm.max_state = ST_DONE;
     conn->stm.states = socks5_states;
@@ -142,12 +137,10 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     conn->destroying = true;
     log(DEBUG, "Destruyendo conexión SOCKS5 (client_fd=%d, remote_fd=%d)", conn->client_fd, conn->remote_fd);
 
-    // Calcular tiempo de conexión para métricas
     struct timeval end_time;
     gettimeofday(&end_time, NULL);
     double connection_time_ms = get_time_diff_ms(&conn->start_time, &end_time);
     
-    // Registrar fin de conexión en métricas
     bool successful = conn->authenticated && (conn->remote_fd != -1);
     metrics_connection_ended(successful, connection_time_ms);
 
@@ -161,15 +154,12 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
         conn->remote_fd = -1;
     }
 
-    // Liberar addrinfo
     if (conn->addr_list) {
         freeaddrinfo(conn->addr_list);
         conn->addr_list = NULL;
     }
     
-    // Liberar DNS job
     if (conn->dns_job) {
-        // Solo liberar result si no se transfirió a addr_list
         if (conn->dns_job->result && conn->dns_job->result != conn->addr_list) {
             freeaddrinfo(conn->dns_job->result);
         }
@@ -177,14 +167,12 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
         conn->dns_job = NULL;
     }
 
-    // Liberar parser híbrido
     if (conn->userpass_parser) {
         log(DEBUG, "Destruyendo parser híbrido");
         parser_destroy(conn->userpass_parser);
         conn->userpass_parser = NULL;
     }
 
-    // Liberar buffers
     if (conn->read_buf_client.data) {
         free(conn->read_buf_client.data);
         conn->read_buf_client.data = NULL;
@@ -234,7 +222,7 @@ static void socks5_close_handler(struct selector_key *key) {
 
     log(DEBUG, "Close handler llamado para fd=%d", key->fd);
 
-    // Marcar qué extremo cerró
+    // Marcar que extremo se cerro
     if (key->fd == conn->client_fd) {
         conn->client_closed = true;
         log(DEBUG, "Cliente cerró la conexión");
@@ -243,7 +231,7 @@ static void socks5_close_handler(struct selector_key *key) {
         log(DEBUG, "Servidor remoto cerró la conexión");
     }
 
-    // Desregistrar el otro fd si no lo está aún
+    // Desregistrar el otro fd si no esta cerrado
     if (!conn->client_closed && conn->client_fd != -1) {
         selector_unregister_fd(key->s, conn->client_fd);
         conn->client_closed = true;
@@ -254,7 +242,7 @@ static void socks5_close_handler(struct selector_key *key) {
         conn->remote_closed = true;
     }
 
-    // Cerrar si ambos extremos están cerrados
+    // Cerrar si los dos extremos estan cerrados
     if (conn->client_closed && conn->remote_closed) {
         log(DEBUG, "Ambos extremos cerrados. Liberando conexión");
         socks5_connection_destroy(conn);
@@ -292,19 +280,16 @@ static unsigned on_auth_read(struct selector_key *key) {
         return ST_DONE;
     }
 
-    buffer_write_adv(b, n);  // avanzar el cursor de escritura
+    buffer_write_adv(b, n);  
 
     int res = socks5_auth_negotiate(conn);
-    if (res < 0) return ST_DONE;     // error, cerrar conexión
-    if (res == 0) return ST_AUTH;    // sigue esperando más datos
+    if (res < 0) return ST_DONE;  
+    if (res == 0) return ST_AUTH;    
     
-    // res == 1 significa negociación OK
     log(INFO, "Autenticación negociada, método: 0x%02x", conn->auth_method);
     
-    // Registrar método de autenticación en métricas
     metrics_auth_method_used(conn->auth_method, true, NULL);
     
-    // Decidir el siguiente estado según el método de autenticación
     if (conn->auth_method == SOCKS5_AUTH_USERPASS) {
         log(INFO, "Esperando credenciales de usuario/contraseña");
         return ST_AUTH_USERPASS;
@@ -318,7 +303,6 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
     if (conn->destroying) return ST_DONE;
     
-    // Verificar que el parser esté inicializado
     if (!conn->userpass_parser) {
         log(ERROR, "Parser híbrido no inicializado");
         return ST_DONE;
@@ -333,7 +317,7 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
     ssize_t n = recv(key->fd, ptr, space, 0);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return ST_AUTH_USERPASS; // No data available, stay in same state
+            return ST_AUTH_USERPASS;
         }
         log(ERROR, "recv() falló en auth userpass: %s", strerror(errno));
         return ST_DONE;
@@ -346,16 +330,13 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
 
     int res = socks5_userpass_auth(conn);
     if (res < 0) {
-        // Registrar fallo de autenticación en métricas
         metrics_auth_method_used(SOCKS5_AUTH_USERPASS, false, NULL);
-        return ST_DONE;           // error, cerrar conexión
+        return ST_DONE;        
     }
-    if (res == 0) return ST_AUTH_USERPASS; // sigue esperando más datos
+    if (res == 0) return ST_AUTH_USERPASS;
     
-    // res == 1 significa autenticación exitosa
     log(INFO, "Usuario autenticado exitosamente: %s", conn->auth_username);
     
-    // Registrar éxito de autenticación en métricas
     metrics_auth_method_used(SOCKS5_AUTH_USERPASS, true, conn->auth_username);
     
     return ST_REQUEST;
@@ -371,7 +352,6 @@ static unsigned on_request_read(struct selector_key *key) {
     size_t available;
     buffer_read_ptr(b, &available);
     
-    // If no data available, try to read more
     if (available == 0) {
         size_t space;
         uint8_t *ptr = buffer_write_ptr(b, &space);
@@ -379,7 +359,7 @@ static unsigned on_request_read(struct selector_key *key) {
         ssize_t n = recv(key->fd, ptr, space, 0);
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                return ST_REQUEST; // No data available, stay in same state
+                return ST_REQUEST; 
             }
             log(ERROR, "recv() falló en request: %s", strerror(errno));
             return ST_DONE;
@@ -394,17 +374,14 @@ static unsigned on_request_read(struct selector_key *key) {
     log(DEBUG, "Procesando request SOCKS5");
     int res = socks5_process_request(conn);
 
-    if (res < 0) return ST_DONE;     // error, cerrar conexión
-    if (res == 0) return ST_REQUEST; // sigue esperando más datos
+    if (res < 0) return ST_DONE;     
+    if (res == 0) return ST_REQUEST;
     
     log(INFO, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
     
-    // Registrar tipo de request en métricas
     metrics_request_type(conn->target_atyp);
     
-    // Decidir si necesitamos resolución DNS o podemos conectar directamente
     if (conn->target_atyp == SOCKS5_ATYP_DOMAINNAME) {
-        // Necesitamos resolución DNS asíncrona
         log(INFO, "Iniciando resolución DNS asíncrona para %s", conn->target_host);
         start_resolve_async(conn, key->s);
         return ST_RESOLVING;
@@ -443,7 +420,6 @@ static unsigned on_request_read(struct selector_key *key) {
         
         conn->addr_list = addr;
         
-        // Conectar directamente aquí también
         if (socks5_finish_connection(conn) < 0) {
             log(ERROR, "Error conectando al servidor remoto");
             metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
@@ -451,13 +427,11 @@ static unsigned on_request_read(struct selector_key *key) {
             return ST_DONE;
         }
 
-        // Enviar respuesta exitosa al cliente
         if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
             log(ERROR, "Error enviando respuesta de éxito");
             return ST_DONE;
         }
 
-        // Registrar el fd remoto en el selector
         selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
         if (s != SELECTOR_SUCCESS) {
             log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
@@ -485,13 +459,11 @@ static unsigned on_resolving_block(struct selector_key *key) {
         return ST_DONE;
     }
     
-    // Resolución exitosa - transferir ownership correctamente
     conn->addr_list = conn->dns_job->result;
-    conn->dns_job->result = NULL; // Importante: evitar double free
+    conn->dns_job->result = NULL; // imp!! para evitar double free
     
     log(INFO, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
     
-    // Hacer la conexión directamente aquí
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "Error conectando al servidor remoto");
         metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
@@ -499,13 +471,11 @@ static unsigned on_resolving_block(struct selector_key *key) {
         return ST_DONE;
     }
 
-    // Enviar respuesta exitosa al cliente
     if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
         log(ERROR, "Error enviando respuesta de éxito");
         return ST_DONE;
     }
 
-    // Registrar el fd remoto en el selector
     selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
     if (s != SELECTOR_SUCCESS) {
         log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
@@ -520,7 +490,6 @@ static unsigned on_connect_block(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
     if (conn->destroying) return ST_DONE;
     
-    // Intentar conectar al servidor remoto
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "Error conectando al servidor remoto");
         metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
@@ -528,13 +497,11 @@ static unsigned on_connect_block(struct selector_key *key) {
         return ST_DONE;
     }
 
-    // Enviar respuesta exitosa al cliente
     if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
         log(ERROR, "Error enviando respuesta de éxito");
         return ST_DONE;
     }
 
-    // Registrar el fd remoto en el selector
     selector_status s = selector_register(key->s, conn->remote_fd, &socks5_handler, OP_READ, conn);
     if (s != SELECTOR_SUCCESS) {
         log(ERROR, "Error registrando fd remoto: %s", selector_error(s));
@@ -553,7 +520,6 @@ static unsigned on_stream_read(struct selector_key *key) {
     int to_fd;
     buffer *from_buf, *to_buf;
     
-    // Determinar dirección del flujo de datos
     if (from_fd == conn->client_fd) {
         // Cliente -> Servidor remoto
         to_fd = conn->remote_fd;
@@ -566,12 +532,10 @@ static unsigned on_stream_read(struct selector_key *key) {
         to_buf = &conn->write_buf_client;
     }
     
-    // Leer datos del socket origen
     size_t space;
     uint8_t *ptr = buffer_write_ptr(from_buf, &space);
     
     if (space == 0) {
-        // Buffer lleno, pausar lectura y activar escritura
         selector_set_interest_key(key, OP_NOOP);
         selector_set_interest(key->s, to_fd, OP_WRITE);
         return ST_STREAM;
@@ -580,19 +544,17 @@ static unsigned on_stream_read(struct selector_key *key) {
     ssize_t n = recv(from_fd, ptr, space, 0);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return ST_STREAM; // No hay datos disponibles
+            return ST_STREAM; 
         }
         log(ERROR, "Error en recv(): %s", strerror(errno));
         return ST_DONE;
     } else if (n == 0) {
-        // Conexión cerrada por el peer
         log(INFO, "Conexión cerrada por %s", (from_fd == conn->client_fd) ? "cliente" : "servidor remoto");
         return ST_DONE;
     }
     
     buffer_write_adv(from_buf, n);
     
-    // Intentar escribir inmediatamente al destino
     size_t available;
     uint8_t *data = buffer_read_ptr(from_buf, &available);
     
@@ -601,10 +563,7 @@ static unsigned on_stream_read(struct selector_key *key) {
         if (sent > 0) {
             buffer_read_adv(from_buf, sent);
             
-            // Registrar bytes transferidos en métricas
             if (from_fd == conn->client_fd) {
-                // Cliente -> Remoto
-                metrics_bytes_transferred(n, 0, 0, sent);
                 // Cliente -> Remoto
                 metrics_bytes_transferred(n, 0, 0, sent);
             } else {
@@ -616,7 +575,6 @@ static unsigned on_stream_read(struct selector_key *key) {
             return ST_DONE;
         }
         
-        // Si no se pudo enviar todo, activar escritura en destino
         buffer_read_ptr(from_buf, &available);
         if (available > 0) {
             selector_set_interest(key->s, to_fd, OP_READ | OP_WRITE);
@@ -634,7 +592,6 @@ static unsigned on_stream_write(struct selector_key *key) {
     buffer *buf;
     int from_fd;
     
-    // Determinar qué buffer usar
     if (to_fd == conn->client_fd) {
         buf = &conn->write_buf_client;
         from_fd = conn->remote_fd;
@@ -643,12 +600,10 @@ static unsigned on_stream_write(struct selector_key *key) {
         from_fd = conn->client_fd;
     }
     
-    // Escribir datos pendientes
     size_t available;
     uint8_t *data = buffer_read_ptr(buf, &available);
     
     if (available == 0) {
-        // No hay datos para escribir, desactivar escritura
         selector_set_interest_key(key, OP_READ);
         return ST_STREAM;
     }
@@ -656,7 +611,7 @@ static unsigned on_stream_write(struct selector_key *key) {
     ssize_t sent = send(to_fd, data, available, MSG_NOSIGNAL);
     if (sent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return ST_STREAM; // Socket no listo para escritura
+            return ST_STREAM;
         }
         log(ERROR, "Error en send(): %s", strerror(errno));
         return ST_DONE;
@@ -664,7 +619,6 @@ static unsigned on_stream_write(struct selector_key *key) {
     
     buffer_read_adv(buf, sent);
     
-    // Registrar bytes transferidos en métricas
     if (to_fd == conn->client_fd) {
         // Remoto -> Cliente
         metrics_bytes_transferred(0, sent, 0, 0);
@@ -673,10 +627,8 @@ static unsigned on_stream_write(struct selector_key *key) {
         metrics_bytes_transferred(0, 0, 0, sent);
     }
     
-    // Verificar si se escribió todo
     buffer_read_ptr(buf, &available);
     if (available == 0) {
-        // Buffer vacío, reactivar lectura del origen
         selector_set_interest_key(key, OP_READ);
         selector_set_interest(key->s, from_fd, OP_READ);
     }

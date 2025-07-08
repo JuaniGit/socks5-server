@@ -12,7 +12,6 @@
 #include <arpa/inet.h>
 #include <sys/time.h>
 
-// Prototipos de funciones por estado
 static unsigned on_admin_auth_read(struct selector_key *key);
 static unsigned on_admin_command_read(struct selector_key *key);
 static unsigned on_admin_response_write(struct selector_key *key);
@@ -53,10 +52,10 @@ struct admin_connection *admin_connection_new(int client_fd) {
     conn->authenticated = false;
     conn->destroying = false;
     
-    // Inicializar timestamp
+    // timestamp
     gettimeofday(&conn->start_time, NULL);
     
-    // Inicializar buffers
+    // buffers
     uint8_t *read_buf_data = malloc(2048);
     uint8_t *write_buf_data = malloc(2048);
     
@@ -71,7 +70,7 @@ struct admin_connection *admin_connection_new(int client_fd) {
     buffer_init(&conn->read_buf, 2048, read_buf_data);
     buffer_init(&conn->write_buf, 2048, write_buf_data);
     
-    // Inicializar máquina de estados
+    // máquina de estados
     conn->stm.initial = ST_ADMIN_AUTH;
     conn->stm.max_state = ST_ADMIN_DONE;
     conn->stm.states = admin_states;
@@ -167,7 +166,7 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
     
     buffer_write_adv(b, n);
     
-    // Procesar autenticación
+    // Procesar auth
     int result = admin_process_auth(conn);
     if (result < 0) {
         log(INFO, "Autenticación admin fallida");
@@ -177,7 +176,7 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
         return ST_ADMIN_AUTH;  // Necesita más datos
     }
     
-    // Autenticación exitosa
+    // auth exitosa
     log(INFO, "Cliente admin autenticado exitosamente desde %s", conn->client_address);
     log(DEBUG, "Transición: ST_ADMIN_AUTH -> ST_ADMIN_COMMAND");
     return ST_ADMIN_COMMAND;
@@ -220,7 +219,7 @@ static unsigned on_admin_command_read(struct selector_key *key) {
         return ST_ADMIN_COMMAND;  // Necesita más datos
     }
     
-    // Comando procesado exitosamente, seguir esperando más comandos
+    // todo ok, seguir esperando más comandos
     return ST_ADMIN_COMMAND;
 }
 
@@ -231,12 +230,12 @@ static unsigned on_admin_response_write(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE);
     buffer *b = &conn->write_buf;
     
-    // Escribir datos pendientes
+    // Escribir datos que quedaron
     size_t available;
     uint8_t *data = buffer_read_ptr(b, &available);
     
     if (available == 0) {
-        // No hay datos para escribir, volver a comando
+        // No hay datos para escribir -> volver a comando
         selector_set_interest_key(key, OP_READ);
         return ST_ADMIN_COMMAND;
     }
@@ -252,10 +251,9 @@ static unsigned on_admin_response_write(struct selector_key *key) {
     
     buffer_read_adv(b, sent);
     
-    // Verificar si se escribió todo
+    // chequear que se escribio todo
     buffer_read_ptr(b, &available);
     if (available == 0) {
-        // Respuesta enviada completamente
         selector_set_interest_key(key, OP_READ);
         return ST_ADMIN_COMMAND;
     }
@@ -284,7 +282,7 @@ int admin_process_auth(struct admin_connection *conn) {
     
     // Necesitamos al menos VER + ALEN
     if (available < 2) {
-        return 0;  // Necesita más datos
+        return 0;
     }
     
     uint8_t version = ptr[0];
@@ -297,7 +295,7 @@ int admin_process_auth(struct admin_connection *conn) {
     }
     
     if (available < 2 + token_len) {
-        return 0;  // Necesita más datos
+        return 0;
     }
     
     // Verificar token
@@ -314,7 +312,7 @@ int admin_process_auth(struct admin_connection *conn) {
     // Consumir datos
     buffer_read_adv(b, 2 + token_len);
     
-    // Autenticación exitosa
+    // auth exitosa
     conn->authenticated = true;
     admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
     
@@ -335,7 +333,7 @@ int admin_process_command(struct admin_connection *conn) {
     
     // Necesitamos al menos VER + CMD
     if (available < 2) {
-        return 0;  // Necesita más datos
+        return 0;
     }
     
     uint8_t version = ptr[0];
@@ -347,7 +345,7 @@ int admin_process_command(struct admin_connection *conn) {
         return -1;
     }
     
-    // Determinar si necesitamos más datos según el comando
+    // ver si necesitamos más datos según el comando
     uint16_t data_len = 0;
     uint8_t *data_ptr = NULL;
     
@@ -356,19 +354,19 @@ int admin_process_command(struct admin_connection *conn) {
         command == ADMIN_CMD_SET_BUFFER_SIZE || command == ADMIN_CMD_SET_TIMEOUT) {
         
         if (available < 4) {
-            return 0;  // Necesita longitud de datos
+            return 0;
         }
         
         data_len = (ptr[2] << 8) | ptr[3];
         
         if (available < 4 + data_len) {
-            return 0;  // Necesita más datos
+            return 0;
         }
         
         data_ptr = ptr + 4;
     }
     
-    // Procesar comando específico
+    // procesar comando
     int result = 0;
     switch (command) {
         case ADMIN_CMD_LIST_USERS:
@@ -398,7 +396,7 @@ int admin_process_command(struct admin_connection *conn) {
         case ADMIN_CMD_QUIT:
             log(INFO, "Cliente admin solicitó desconexión");
             admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
-            return -1;  // Cerrar conexión
+            return -1;  // para cerrar conexión
         default:
             log(ERROR, "Comando admin no soportado: %d", command);
             admin_send_response(conn, ADMIN_REP_COMMAND_NOT_SUPPORTED, NULL, 0);
@@ -406,25 +404,21 @@ int admin_process_command(struct admin_connection *conn) {
             break;
     }
     
-    // Consumir datos del comando
+    // consumir datos del comando
     buffer_read_adv(b, 2 + (data_len > 0 ? 2 + data_len : 0));
     
     return result;
 }
 
-// ✅ NUEVA IMPLEMENTACIÓN: Envío directo con send()
 int admin_send_response(struct admin_connection *conn, uint8_t response_code, 
                        const uint8_t *data, uint16_t data_len) {
     
-    // Construir respuesta en buffer temporal
     uint8_t response[1024];
     uint16_t offset = 0;
     
-    // Header: VER + RESPONSE_CODE
     response[offset++] = ADMIN_VERSION;
     response[offset++] = response_code;
     
-    // Si hay datos, agregar longitud + datos
     if (data_len > 0 && data) {
         response[offset++] = (data_len >> 8) & 0xFF;
         response[offset++] = data_len & 0xFF;
@@ -432,7 +426,6 @@ int admin_send_response(struct admin_connection *conn, uint8_t response_code,
         offset += data_len;
     }
     
-    // Enviar directamente
     ssize_t sent = send(conn->client_fd, response, offset, MSG_NOSIGNAL);
     if (sent != offset) {
         log(ERROR, "Error enviando respuesta admin: %s", strerror(errno));
@@ -454,15 +447,12 @@ int admin_handle_list_users(struct admin_connection *conn) {
     struct user_credentials users[MAX_USERS];
     size_t count = users_list(users, MAX_USERS);
     
-    // Construir respuesta
     uint8_t response_data[1024];
     uint16_t offset = 0;
     
-    // Agregar contador de usuarios
     response_data[offset++] = (count >> 8) & 0xFF;
     response_data[offset++] = count & 0xFF;
     
-    // Agregar cada usuario
     for (size_t i = 0; i < count && offset < sizeof(response_data) - 256; i++) {
         uint8_t username_len = strlen(users[i].username);
         response_data[offset++] = username_len;
@@ -494,14 +484,12 @@ int admin_handle_add_user(struct admin_connection *conn, const uint8_t *data, ui
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
-    // Extraer usuario y contraseña
     char username[256], password[256];
     memcpy(username, data + 1, username_len);
     username[username_len] = '\0';
     memcpy(password, data + 1 + username_len + 1, password_len);
     password[password_len] = '\0';
     
-    // Agregar usuario
     bool success = users_add(username, password);
     
     if (success) {
@@ -527,12 +515,10 @@ int admin_handle_del_user(struct admin_connection *conn, const uint8_t *data, ui
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
-    // Extraer usuario
     char username[256];
     memcpy(username, data + 1, username_len);
     username[username_len] = '\0';
     
-    // Eliminar usuario
     bool success = users_remove(username);
     
     if (success) {
@@ -549,35 +535,29 @@ int admin_handle_get_metrics(struct admin_connection *conn) {
     
     struct socks5_metrics metrics = metrics_get_snapshot();
     
-    // Construir respuesta con métricas clave
     uint8_t response_data[512];
     uint16_t offset = 0;
     
-    // Total connections (8 bytes)
     uint64_t total_conn = metrics.connections.total_connections;
     for (int i = 7; i >= 0; i--) {
         response_data[offset++] = (total_conn >> (i * 8)) & 0xFF;
     }
     
-    // Current connections (8 bytes)
     uint64_t current_conn = metrics.connections.current_connections;
     for (int i = 7; i >= 0; i--) {
         response_data[offset++] = (current_conn >> (i * 8)) & 0xFF;
     }
     
-    // Total bytes transferred (8 bytes)
     uint64_t total_bytes = metrics.transfers.total_bytes_transferred;
     for (int i = 7; i >= 0; i--) {
         response_data[offset++] = (total_bytes >> (i * 8)) & 0xFF;
     }
     
-    // Successful connections (8 bytes)
     uint64_t successful_conn = metrics.connections.successful_connections;
     for (int i = 7; i >= 0; i--) {
         response_data[offset++] = (successful_conn >> (i * 8)) & 0xFF;
     }
     
-    // Failed connections (8 bytes)
     uint64_t failed_conn = metrics.connections.failed_connections;
     for (int i = 7; i >= 0; i--) {
         response_data[offset++] = (failed_conn >> (i * 8)) & 0xFF;

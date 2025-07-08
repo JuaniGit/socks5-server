@@ -19,7 +19,6 @@ struct admin_client {
     uint8_t buffer[ADMIN_CLIENT_BUFFER_SIZE];
 };
 
-// Function declarations
 static void print_menu(void);
 static void handle_list_users(int sock);
 static void handle_add_user(int sock, const char *user, const char *pass);
@@ -68,7 +67,7 @@ static int admin_client_authenticate(int sock, const char *token) {
         return -1;
     }
     
-    // Leer respuesta
+    // Leer rta
     uint8_t response[4];
     if (recv(sock, response, 2, 0) < 2) {
         printf("Error recibiendo respuesta de autenticación\n");
@@ -122,7 +121,7 @@ static int admin_client_receive_response(int sock, uint8_t *response_code, uint8
     *response_code = header[1];
     *data_len = 0;
     
-    // Verificar si hay datos adicionales
+    // Verificar si hay datos extra
     if (*response_code == ADMIN_REP_SUCCESS) {
         // Intentar leer longitud de datos
         if (recv(sock, header + 2, 2, MSG_DONTWAIT) == 2) {
@@ -274,7 +273,7 @@ static void handle_get_metrics(int sock) {
         return;
     }
     
-    // Decodificar metricas
+    // metricas
     uint64_t total_conn = 0, current_conn = 0, total_bytes = 0;
     uint64_t successful_conn = 0, failed_conn = 0;
     
@@ -357,7 +356,7 @@ void handle_set_max_connections(int sock, int max_conn) {
     }
 }
 
-// Command struct
+// struct para comandos
 typedef void (*command_handler)(int sock, const char *args);
 
 typedef struct {
@@ -433,7 +432,7 @@ static void dispatch_metrics(int sock, const char *args) {
     handle_get_metrics(sock);
 }
 
-// Command table
+// tabla de comandos
 static const command_entry commands[] = {
     {"help", dispatch_help},
     {"menu", dispatch_help},
@@ -492,7 +491,7 @@ int main(int argc, char *argv[]) {
             return 0;
         }
 
-        input[strcspn(input, "\n")] = 0;  // strip newline
+        input[strcspn(input, "\n")] = 0;
 
         char cmd[64], args[MAX_INPUT];
         int matched = sscanf(input, "%63s %[^\n]", cmd, args);

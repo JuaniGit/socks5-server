@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// Configuración global del servidor que puede ser modificada por admin
+// config global del servidor que puede ser editada por admin
 struct admin_server_config {
     uint32_t max_connections;
     uint32_t buffer_size;
@@ -12,21 +12,12 @@ struct admin_server_config {
     bool config_changed;  // Flag para notificar cambios
 };
 
-// Obtener configuración actual
 struct admin_server_config* admin_config_get(void);
-
-// Funciones para modificar configuración
 void admin_config_set_max_connections(uint32_t max_conn);
 void admin_config_set_buffer_size(uint32_t buffer_size);
 void admin_config_set_timeout(uint32_t timeout);
-
-// Verificar si la configuración ha cambiado
 bool admin_config_has_changed(void);
-
-// Marcar cambios como procesados
 void admin_config_mark_processed(void);
-
-// Inicializar configuración con valores por defecto
 void admin_config_init(void);
 
 #endif

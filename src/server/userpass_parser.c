@@ -3,29 +3,24 @@
 #include <string.h>
 #include <stdlib.h>
 
-// Funciones de acción simplificadas - solo generan eventos de "byte leído"
 void userpass_byte_action(struct parser_event *ret, const uint8_t c) {
     ret->type = USERPASS_EVENT_BYTE;
     ret->n = 1;
     ret->data[0] = c;
 }
 
-// Definición de transiciones - todas van al mismo estado y generan el mismo evento
 static const struct parser_state_transition userpass_st_read[] = {
     {.when = ANY, .dest = USERPASS_READ, .act1 = userpass_byte_action}
 };
 
-// Array de estados - necesitamos asegurarnos de que el índice coincida
 static const struct parser_state_transition *userpass_states[] = {
     userpass_st_read  // índice 0 = USERPASS_READ
 };
 
-// Cantidad de transiciones por estado - debe coincidir con el array anterior
 static const size_t userpass_states_n[] = {
-    sizeof(userpass_st_read) / sizeof(userpass_st_read[0])  // índice 0
+    sizeof(userpass_st_read) / sizeof(userpass_st_read[0])
 };
 
-// Definición estática del parser (debe persistir en memoria)
 static struct parser_definition userpass_def = {0};
 static bool parser_def_initialized = false;
 
@@ -37,7 +32,6 @@ struct parser_definition* userpass_parser_definition(void) {
         userpass_def.start_state = USERPASS_READ;
         parser_def_initialized = true;
         
-        // Debug: verificar que la definición es válida
         log(DEBUG, "Parser definition: states_count=%u, start_state=%u", 
             userpass_def.states_count, userpass_def.start_state);
     }
@@ -66,7 +60,6 @@ int userpass_process_event(struct userpass_parser_data *data, const struct parse
         return data->error ? -1 : 1;
     }
     
-    // El parser solo nos da eventos de "byte leído"
     if (event->type != USERPASS_EVENT_BYTE) {
         log(ERROR, "Evento inesperado del parser: %d", event->type);
         data->error = true;
@@ -76,7 +69,6 @@ int userpass_process_event(struct userpass_parser_data *data, const struct parse
     uint8_t byte = event->data[0];
     log(DEBUG, "Procesando byte 0x%02x en estado %d", byte, data->state);
     
-    // Aquí procesamos el byte según nuestro estado manual
     switch (data->state) {
         case PARSE_VERSION:
             data->version = byte;
@@ -156,10 +148,9 @@ int userpass_process_event(struct userpass_parser_data *data, const struct parse
             return -1;
     }
     
-    return 0; // Necesita más datos
+    return 0; 
 }
 
-// Funciones de acceso a los datos parseados
 const char* userpass_parser_get_username(struct userpass_parser_data *data) {
     return (data && data->finished) ? data->username : NULL;
 }
