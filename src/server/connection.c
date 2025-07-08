@@ -2,7 +2,7 @@
 #include "connection.h"
 #include "../shared/logger.h"
 #include "socks5.h"
-#include "metrics.h"
+#include "../shared/metrics.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>

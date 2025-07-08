@@ -1,6 +1,6 @@
 #define _POSIX_C_SOURCE 200112L
 #include "socks5.h"
-#include "users.h"
+#include "../shared/users.h"
 #include "../shared/util.h"
 #include <stdlib.h>
 #include <string.h>
