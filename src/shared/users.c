@@ -8,24 +8,6 @@
 struct user_credentials users_db[MAX_USERS];
 size_t users_count = 0;
 
-static char welcome_message[2048];
-
-static void generate_welcome_message(void) {
-    int offset = snprintf(welcome_message, sizeof(welcome_message),
-        "SOCKS5 Proxy Server - Usuarios disponibles:\n");
-    
-    for (size_t i = 0; i < users_count && offset < sizeof(welcome_message) - 100; i++) {
-        if (users_db[i].active) {
-            offset += snprintf(welcome_message + offset, 
-                sizeof(welcome_message) - offset,
-                "- %s\n", users_db[i].username);
-        }
-    }
-    
-    snprintf(welcome_message + offset, sizeof(welcome_message) - offset,
-        "Utilice método de autenticación 0x02 (usuario/contraseña)\n");
-}
-
 bool users_init(const char *csv_file) {
     users_count = 0;
     
@@ -83,7 +65,6 @@ bool users_init(const char *csv_file) {
         return false;
     }
     
-    generate_welcome_message();
     log(INFO, "Sistema de usuarios inicializado con %zu usuarios desde %s", users_count, csv_file);
     return true;
 }
@@ -122,7 +103,6 @@ bool users_add(const char *username, const char *password) {
             users_db[i].password[MAX_PASSWORD_LEN] = '\0';
             users_db[i].active = true;
             log(INFO, "Usuario '%s' actualizado", username);
-            generate_welcome_message();
             return true;
         }
     }
@@ -134,7 +114,6 @@ bool users_add(const char *username, const char *password) {
     users_db[users_count].active = true;
     users_count++;
     
-    generate_welcome_message();
     log(INFO, "Usuario '%s' agregado exitosamente", username);
     return true;
 }
@@ -148,7 +127,6 @@ bool users_remove(const char *username) {
         if (strcmp(users_db[i].username, username) == 0) {
             users_db[i].active = false;
             log(INFO, "Usuario '%s' desactivado", username);
-            generate_welcome_message();
             return true;
         }
     }
@@ -170,8 +148,4 @@ size_t users_list(struct user_credentials *output, size_t max_count) {
     }
     
     return count;
-}
-
-const char* users_get_welcome_message(void) {
-    return welcome_message;
 }

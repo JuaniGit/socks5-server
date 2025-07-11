@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <sys/time.h>
+#include <arpa/inet.h>
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -69,7 +70,7 @@ static double get_time_diff_ms(struct timeval *start, struct timeval *end) {
 struct socks5_connection *socks5_connection_new(int client_fd) {
     struct socks5_connection *conn = calloc(1, sizeof(*conn));
     if (!conn) {
-        log(ERROR, "Error alocando memoria para conexión SOCKS5");
+        log(ERROR, "%s", "Error alocando memoria para conexión SOCKS5");
         return NULL;
     }
 
@@ -88,7 +89,7 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     uint8_t *write_remote_buf = malloc(4096);
     
     if (!read_client_buf || !write_client_buf || !read_remote_buf || !write_remote_buf) {
-        log(ERROR, "Error alocando memoria para buffers");
+        log(ERROR, "%s", "Error alocando memoria para buffers");
         free(read_client_buf);
         free(write_client_buf);
         free(read_remote_buf);
@@ -102,25 +103,25 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     buffer_init(&conn->read_buf_remote, 4096, read_remote_buf);
     buffer_init(&conn->write_buf_remote, 4096, write_remote_buf);
     
-    log(DEBUG, "Inicializando parser híbrido de autenticación usuario/contraseña");
+    log(DEBUG, "%s", "Inicializando parser híbrido de autenticación usuario/contraseña");
 
     struct parser_definition *userpass_def = userpass_parser_definition();
 
     if (!userpass_def || userpass_def->states_count == 0 || !userpass_def->states || !userpass_def->states_n) {
-        log(ERROR, "Definición de parser inválida");
+        log(ERROR, "%s", "Definición de parser inválida");
         socks5_connection_destroy(conn);
         return NULL;
     }
 
     conn->userpass_parser = parser_init(parser_no_classes(), userpass_def);
     if (!conn->userpass_parser) {
-        log(ERROR, "Error inicializando parser híbrido de autenticación usuario/contraseña");
+        log(ERROR, "%s", "Error inicializando parser híbrido de autenticación usuario/contraseña");
         socks5_connection_destroy(conn);
         return NULL;
     }
     
     userpass_parser_data_init(&conn->userpass_data);
-    log(DEBUG, "Parser híbrido inicializado correctamente");
+    log(DEBUG, "%s", "Parser híbrido inicializado correctamente");
     
     conn->stm.initial = ST_AUTH;
     conn->stm.max_state = ST_DONE;
@@ -168,7 +169,7 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     }
 
     if (conn->userpass_parser) {
-        log(DEBUG, "Destruyendo parser híbrido");
+        log(DEBUG, "%s", "Destruyendo parser híbrido");
         parser_destroy(conn->userpass_parser);
         conn->userpass_parser = NULL;
     }
@@ -191,7 +192,7 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     }
 
     free(conn);
-    log(DEBUG, "Conexión SOCKS5 destruida");
+    log(DEBUG, "%s", "Conexión SOCKS5 destruida");
 }
 
 // ==============================
@@ -225,10 +226,10 @@ static void socks5_close_handler(struct selector_key *key) {
     // Marcar que extremo se cerro
     if (key->fd == conn->client_fd) {
         conn->client_closed = true;
-        log(DEBUG, "Cliente cerró la conexión");
+        log(DEBUG, "%s", "Cliente cerró la conexión");
     } else if (key->fd == conn->remote_fd) {
         conn->remote_closed = true;
-        log(DEBUG, "Servidor remoto cerró la conexión");
+        log(DEBUG, "%s", "Servidor remoto cerró la conexión");
     }
 
     // Desregistrar el otro fd si no esta cerrado
@@ -244,7 +245,7 @@ static void socks5_close_handler(struct selector_key *key) {
 
     // Cerrar si los dos extremos estan cerrados
     if (conn->client_closed && conn->remote_closed) {
-        log(DEBUG, "Ambos extremos cerrados. Liberando conexión");
+        log(DEBUG, "%s", "Ambos extremos cerrados. Liberando conexión");
         socks5_connection_destroy(conn);
     }
 }
@@ -273,10 +274,10 @@ static unsigned on_auth_read(struct selector_key *key) {
 
     ssize_t n = recv(key->fd, ptr, space, 0);
     if (n < 0) {
-        log(ERROR, "recv() falló");
+        log(ERROR, "%s", "recv() falló");
         return ST_DONE;
     } else if (n == 0) {
-        log(INFO, "Conexión cerrada por el cliente");
+        log(INFO, "%s", "Conexión cerrada por el cliente");
         return ST_DONE;
     }
 
@@ -291,10 +292,10 @@ static unsigned on_auth_read(struct selector_key *key) {
     metrics_auth_method_used(conn->auth_method, true, NULL);
     
     if (conn->auth_method == SOCKS5_AUTH_USERPASS) {
-        log(INFO, "Esperando credenciales de usuario/contraseña");
+        log(INFO, "%s", "Esperando credenciales de usuario/contraseña");
         return ST_AUTH_USERPASS;
     } else {
-        log(INFO, "Sin autenticación requerida, pasando a REQUEST");
+        log(INFO, "%s", "Sin autenticación requerida, pasando a REQUEST");
         return ST_REQUEST;
     }
 }
@@ -304,7 +305,7 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
     if (conn->destroying) return ST_DONE;
     
     if (!conn->userpass_parser) {
-        log(ERROR, "Parser híbrido no inicializado");
+        log(ERROR, "%s", "Parser híbrido no inicializado");
         return ST_DONE;
     }
     
@@ -322,7 +323,7 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
         log(ERROR, "recv() falló en auth userpass: %s", strerror(errno));
         return ST_DONE;
     } else if (n == 0) {
-        log(INFO, "Conexión cerrada por el cliente durante auth userpass");
+        log(INFO, "%s", "Conexión cerrada por el cliente durante auth userpass");
         return ST_DONE;
     }
 
@@ -364,14 +365,14 @@ static unsigned on_request_read(struct selector_key *key) {
             log(ERROR, "recv() falló en request: %s", strerror(errno));
             return ST_DONE;
         } else if (n == 0) {
-            log(INFO, "Conexión cerrada por el cliente durante request");
+            log(INFO, "%s", "Conexión cerrada por el cliente durante request");
             return ST_DONE;
         }
         
         buffer_write_adv(b, n);
     }
     
-    log(DEBUG, "Procesando request SOCKS5");
+    log(DEBUG, "%s", "Procesando request SOCKS5");
     int res = socks5_process_request(conn);
 
     if (res < 0) return ST_DONE;     
@@ -390,7 +391,7 @@ static unsigned on_request_read(struct selector_key *key) {
         // Crear una addrinfo fake para la IP
         struct addrinfo *addr = calloc(1, sizeof(*addr));
         if (!addr) {
-            log(ERROR, "Error alocando memoria para addrinfo");
+            log(ERROR, "%s", "Error alocando memoria para addrinfo");
             return ST_DONE;
         }
         
@@ -421,14 +422,14 @@ static unsigned on_request_read(struct selector_key *key) {
         conn->addr_list = addr;
         
         if (socks5_finish_connection(conn) < 0) {
-            log(ERROR, "Error conectando al servidor remoto");
+            log(ERROR, "%s", "Error conectando al servidor remoto");
             metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
             socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
             return ST_DONE;
         }
 
         if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
-            log(ERROR, "Error enviando respuesta de éxito");
+            log(ERROR, "%s", "Error enviando respuesta de éxito");
             return ST_DONE;
         }
 
@@ -448,7 +449,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     if (conn->destroying) return ST_DONE;
     
     if (!conn->dns_job) {
-        log(ERROR, "on_resolving_block llamado sin job DNS");
+        log(ERROR, "%s", "on_resolving_block llamado sin job DNS");
         return ST_DONE;
     }
     
@@ -465,14 +466,14 @@ static unsigned on_resolving_block(struct selector_key *key) {
     log(INFO, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
     
     if (socks5_finish_connection(conn) < 0) {
-        log(ERROR, "Error conectando al servidor remoto");
+        log(ERROR, "%s", "Error conectando al servidor remoto");
         metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
         return ST_DONE;
     }
 
     if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
-        log(ERROR, "Error enviando respuesta de éxito");
+        log(ERROR, "%s", "Error enviando respuesta de éxito");
         return ST_DONE;
     }
 
@@ -491,14 +492,14 @@ static unsigned on_connect_block(struct selector_key *key) {
     if (conn->destroying) return ST_DONE;
     
     if (socks5_finish_connection(conn) < 0) {
-        log(ERROR, "Error conectando al servidor remoto");
+        log(ERROR, "%s", "Error conectando al servidor remoto");
         metrics_error_occurred(METRICS_ERROR_CONNECTION_REFUSED);
         socks5_send_request_response(conn, SOCKS5_REP_HOST_UNREACHABLE);
         return ST_DONE;
     }
 
     if (socks5_send_request_response(conn, SOCKS5_REP_SUCCESS) < 0) {
-        log(ERROR, "Error enviando respuesta de éxito");
+        log(ERROR, "%s", "Error enviando respuesta de éxito");
         return ST_DONE;
     }
 
@@ -518,18 +519,16 @@ static unsigned on_stream_read(struct selector_key *key) {
     
     int from_fd = key->fd;
     int to_fd;
-    buffer *from_buf, *to_buf;
+    buffer *from_buf;
     
     if (from_fd == conn->client_fd) {
         // Cliente -> Servidor remoto
         to_fd = conn->remote_fd;
         from_buf = &conn->read_buf_client;
-        to_buf = &conn->write_buf_remote;
     } else {
         // Servidor remoto -> Cliente
         to_fd = conn->client_fd;
         from_buf = &conn->read_buf_remote;
-        to_buf = &conn->write_buf_client;
     }
     
     size_t space;
@@ -638,7 +637,7 @@ static unsigned on_stream_write(struct selector_key *key) {
 
 static void on_done_arrival(unsigned state, struct selector_key *key) {
     struct socks5_connection *conn = key->data;
-    log(DEBUG, "Entrando en estado DONE");
+    log(DEBUG, "%s", "Entrando en estado DONE");
 
     if (!conn->client_closed && conn->client_fd != -1) {
         selector_unregister_fd(key->s, conn->client_fd);

@@ -104,7 +104,7 @@ bool metrics_init(void) {
     metrics_initialized = true;
     pthread_mutex_unlock(&metrics_mutex);
     
-    log(INFO, "Sistema de métricas inicializado");
+    log(INFO, "%s", "Sistema de métricas inicializado");
     return true;
 }
 
@@ -112,7 +112,7 @@ void metrics_destroy(void) {
     pthread_mutex_lock(&metrics_mutex);
     metrics_initialized = false;
     pthread_mutex_unlock(&metrics_mutex);
-    log(INFO, "Sistema de métricas destruido");
+    log(INFO, "%s", "Sistema de métricas destruido");
 }
 
 void metrics_connection_started(void) {
@@ -314,7 +314,7 @@ void metrics_reset(void) {
     
     pthread_mutex_unlock(&metrics_mutex);
     
-    log(INFO, "Métricas reseteadas");
+    log(INFO, "%s", "Métricas reseteadas");
 }
 
 uint64_t metrics_get_uptime_seconds(void) {

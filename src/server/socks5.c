@@ -51,7 +51,7 @@ static void* dns_resolution_thread(void* arg) {
 void start_resolve_async(struct socks5_connection *conn, fd_selector selector) {
     struct dns_resolution_job *job = malloc(sizeof(*job));
     if (!job) {
-        log(ERROR, "No se pudo alocar memoria para job DNS");
+        log(ERROR, "%s", "No se pudo alocar memoria para job DNS");
         return;
     }
     
@@ -104,7 +104,6 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     }
 
     uint8_t method = SOCKS5_AUTH_NO_ACCEPTABLE; 
-    bool supports_no_auth = false;
     bool supports_userpass = false;
     
     for (uint8_t i = 0; i < nmethods; i++) {
@@ -121,12 +120,12 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     buffer_read_adv(b, 2 + nmethods);
 
     if (socks5_send_auth_response(conn, method) < 0) {
-        log(ERROR, "Error enviando respuesta de autenticación");
+        log(ERROR, "%s", "Error enviando respuesta de autenticación");
         return -1;
     }
 
     if (method == SOCKS5_AUTH_NO_ACCEPTABLE) {
-        log(INFO, "No hay método de autenticación aceptable");
+        log(INFO, "%s", "No hay método de autenticación aceptable");
         return -1; 
     }
 
@@ -154,7 +153,7 @@ int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method) {
 
 int socks5_userpass_auth(struct socks5_connection *conn) {
     if (!conn || !conn->userpass_parser) {
-        log(ERROR, "socks5_userpass_auth: conexión o parser NULL");
+        log(ERROR, "%s", "socks5_userpass_auth: conexión o parser NULL");
         return -1;
     }
     
@@ -164,7 +163,7 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
     uint8_t *ptr = buffer_read_ptr(b, &available);
     
     if (available == 0) {
-        log(DEBUG, "No hay datos disponibles para autenticación usuario/contraseña");
+        log(DEBUG, "%s", "No hay datos disponibles para autenticación usuario/contraseña");
         return 0; 
     }
     
@@ -174,7 +173,7 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
         const struct parser_event *event = parser_feed(conn->userpass_parser, ptr[i]);
         
         if (!event) {
-            log(ERROR, "Parser devolvió evento NULL");
+            log(ERROR, "%s", "Parser devolvió evento NULL");
             buffer_read_adv(b, i + 1);
             socks5_send_userpass_response(conn, USERPASS_FAILURE);
             return -1;
@@ -183,7 +182,7 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
         int result = userpass_process_event(&conn->userpass_data, event);
         
         if (result < 0) {
-            log(ERROR, "Error en parsing híbrido de autenticación usuario/contraseña");
+            log(ERROR, "%s", "Error en parsing híbrido de autenticación usuario/contraseña");
             buffer_read_adv(b, i + 1);
             socks5_send_userpass_response(conn, USERPASS_FAILURE);
             return -1;
@@ -194,7 +193,7 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
             const char *password = userpass_parser_get_password(&conn->userpass_data);
             
             if (!username || !password) {
-                log(ERROR, "Credenciales NULL después del parsing");
+                log(ERROR, "%s", "Credenciales NULL después del parsing");
                 socks5_send_userpass_response(conn, USERPASS_FAILURE);
                 return -1;
             }
@@ -245,7 +244,6 @@ int socks5_process_request(struct socks5_connection *conn) {
 
     uint8_t ver = ptr[0];
     uint8_t cmd = ptr[1];
-    uint8_t rsv = ptr[2];
     uint8_t atyp = ptr[3];
 
     if (ver != SOCKS5_VERSION) {
@@ -348,7 +346,7 @@ int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_c
 int socks5_finish_connection(struct socks5_connection *conn) {
     struct addrinfo *addr_list = conn->addr_list;
     if (!addr_list) {
-        log(ERROR, "No hay direcciones resueltas para conectar");
+        log(ERROR, "%s", "No hay direcciones resueltas para conectar");
         return -1;
     }
     

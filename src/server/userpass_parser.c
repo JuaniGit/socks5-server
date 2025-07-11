@@ -52,7 +52,7 @@ void userpass_parser_data_init(struct userpass_parser_data *data) {
 
 int userpass_process_event(struct userpass_parser_data *data, const struct parser_event *event) {
     if (!data || !event) {
-        log(ERROR, "userpass_process_event: parámetros NULL");
+        log(ERROR, "%s", "userpass_process_event: parámetros NULL");
         return -1;
     }
     
@@ -105,7 +105,7 @@ int userpass_process_event(struct userpass_parser_data *data, const struct parse
                     data->state = PARSE_PLEN;
                 }
             } else {
-                log(ERROR, "Usuario demasiado largo");
+                log(ERROR, "%s", "Usuario demasiado largo");
                 data->error = true;
                 return -1;
             }
@@ -136,7 +136,7 @@ int userpass_process_event(struct userpass_parser_data *data, const struct parse
                     return 1; // Completado exitosamente
                 }
             } else {
-                log(ERROR, "Contraseña demasiado larga");
+                log(ERROR, "%s", "Contraseña demasiado larga");
                 data->error = true;
                 return -1;
             }

@@ -56,7 +56,7 @@ static void admin_accept_handler_func(struct selector_key* key) {
     // Crear la conexión admin
     struct admin_connection *conn = admin_connection_new(client_fd);
     if (conn == NULL) {
-        log(ERROR, "No se pudo crear conexión admin");
+        log(ERROR, "%s", "No se pudo crear conexión admin");
         close(client_fd);
         return;
     }
@@ -103,7 +103,7 @@ static void accept_handler(struct selector_key* key) {
     // Crear la conexión SOCKS5
     struct socks5_connection *conn = socks5_connection_new(client_fd);
     if (conn == NULL) {
-        log(ERROR, "No se pudo crear conexión SOCKS5");
+        log(ERROR, "%s", "No se pudo crear conexión SOCKS5");
         close(client_fd);
         return;
     }
@@ -294,8 +294,8 @@ int main(int argc, char* argv[]) {
     }
     
     setLogLevel(DEBUG);
-    log(INFO, "Inicializando servidor SOCKS5...");
-    log(INFO, "Configuración:");
+    log(INFO, "%s", "Inicializando servidor SOCKS5...");
+    log(INFO, "%s", "Configuración:");
     log(INFO, "  - Puerto SOCKS: %d", global_config.socks_port);
     log(INFO, "  - Dirección SOCKS: %s", global_config.socks_address);
     log(INFO, "  - Puerto Management: %d", global_config.management_port);
@@ -311,13 +311,13 @@ int main(int argc, char* argv[]) {
 
     // Inicializar sistema de métricas
     if (!metrics_init()) {
-        log(FATAL, "Error inicializando sistema de métricas");
+        log(FATAL, "%s", "Error inicializando sistema de métricas");
         return EXIT_FAILURE;
     }
 
     // Inicializar sistema de usuarios
     if (!users_init(NULL)) {
-        log(FATAL, "Error inicializando sistema de usuarios");
+        log(FATAL, "%s", "Error inicializando sistema de usuarios");
         metrics_destroy();
         return EXIT_FAILURE;
     }
@@ -326,8 +326,7 @@ int main(int argc, char* argv[]) {
     load_cli_users(&global_config);
 
     // Mostrar mensaje de bienvenida
-    log(INFO, "Sistema de usuarios inicializado");
-    printf("%s\n", users_get_welcome_message());
+    log(INFO, "%s", "Sistema de usuarios inicializado");
 
     // Inicializar selector
     struct selector_init conf = {
@@ -336,14 +335,14 @@ int main(int argc, char* argv[]) {
     };
 
     if (selector_init(&conf) != SELECTOR_SUCCESS) {
-        log(FATAL, "No se pudo inicializar el selector");
+        log(FATAL, "%s", "No se pudo inicializar el selector");
         metrics_destroy();
         return EXIT_FAILURE;
     }
 
     fd_selector selector = selector_new(MAX_CONNECTIONS);
     if (selector == NULL) {
-        log(FATAL, "No se pudo crear el selector");
+        log(FATAL, "%s", "No se pudo crear el selector");
         metrics_destroy();
         return EXIT_FAILURE;
     }
@@ -367,7 +366,7 @@ int main(int argc, char* argv[]) {
     };
 
     if (selector_register(selector, server_fd, &server_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
-        log(FATAL, "Error registrando socket servidor");
+        log(FATAL, "%s", "Error registrando socket servidor");
         close(server_fd);
         selector_destroy(selector);
         selector_close();
@@ -375,7 +374,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    log(INFO, "Servidor SOCKS5 iniciado correctamente");
+    log(INFO, "%s", "Servidor SOCKS5 iniciado correctamente");
 
     // Inicializar configuración de administración
     admin_config_init();
@@ -394,7 +393,7 @@ int main(int argc, char* argv[]) {
         };
 
         if (selector_register(selector, admin_fd, &admin_accept_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
-            log(ERROR, "Error registrando servidor de administración");
+            log(ERROR, "%s", "Error registrando servidor de administración");
             close(admin_fd);
             admin_fd = -1;
         } else {
@@ -402,14 +401,14 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    log(INFO, "Esperando conexiones...");
+    log(INFO, "%s", "Esperando conexiones...");
 
     time_t last_stats = time(NULL);    
 
     while (running) {
         selector_status s = selector_select(selector);
         if (s == SELECTOR_IO && errno == EBADF) {
-            log(ERROR, "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
+            log(ERROR, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
             continue;
         } else if (s != SELECTOR_SUCCESS && !(errno == EINTR || errno == EAGAIN)) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));
@@ -423,7 +422,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    log(INFO, "Servidor finalizando...");
+    log(INFO, "%s", "Servidor finalizando...");
     metrics_print_summary();
 
     close(server_fd);
@@ -433,6 +432,6 @@ int main(int argc, char* argv[]) {
     selector_destroy(selector);
     selector_close();
     metrics_destroy();
-    log(INFO, "Recursos liberados. Hasta luego.");
+    log(INFO, "%s", "Recursos liberados. Hasta luego.");
     return EXIT_SUCCESS;
 }

@@ -23,7 +23,7 @@ void config_init(struct server_config *config) {
     config->access_log_enabled = true;
     config->password_log_enabled = true;
     
-    log(DEBUG, "Configuración inicializada con valores por defecto");
+    log(DEBUG, "%s", "Configuración inicializada con valores por defecto");
 }
 
 void config_show_help(const char *program_name) {
@@ -73,7 +73,7 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
     // Buscar el separador ':'
     const char *colon = strchr(user_pass, ':');
     if (!colon) {
-        log(ERROR, "Formato inválido para usuario. Use: usuario:contraseña");
+        log(ERROR, "%s", "Formato inválido para usuario. Use: usuario:contraseña");
         return -1;
     }
     
@@ -81,12 +81,12 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
     size_t password_len = strlen(colon + 1);
     
     if (username_len == 0 || password_len == 0) {
-        log(ERROR, "Usuario y contraseña no pueden estar vacíos");
+        log(ERROR, "%s", "Usuario y contraseña no pueden estar vacíos");
         return -1;
     }
     
     if (username_len >= 255 || password_len >= 255) {
-        log(ERROR, "Usuario o contraseña demasiado largos");
+        log(ERROR, "%s", "Usuario o contraseña demasiado largos");
         return -1;
     }
     
@@ -156,7 +156,7 @@ int config_parse_args(struct server_config *config, int argc, char *argv[]) {
                 return -1;
                 
             default:
-                log(ERROR, "Error parseando argumentos");
+                log(ERROR, "%s", "Error parseando argumentos");
                 return -1;
         }
     }

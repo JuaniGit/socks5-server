@@ -23,6 +23,5 @@ bool users_validate(const char *username, const char *password);
 bool users_add(const char *username, const char *password);
 bool users_remove(const char *username);
 size_t users_list(struct user_credentials *output, size_t max_count);
-const char* users_get_welcome_message(void);
 
 #endif

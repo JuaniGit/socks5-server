@@ -44,7 +44,7 @@ static const struct state_definition admin_states[] = {
 struct admin_connection *admin_connection_new(int client_fd) {
     struct admin_connection *conn = calloc(1, sizeof(*conn));
     if (!conn) {
-        log(ERROR, "Error alocando memoria para conexión admin");
+        log(ERROR, "%s", "Error alocando memoria para conexión admin");
         return NULL;
     }
     
@@ -60,7 +60,7 @@ struct admin_connection *admin_connection_new(int client_fd) {
     uint8_t *write_buf_data = malloc(2048);
     
     if (!read_buf_data || !write_buf_data) {
-        log(ERROR, "Error alocando memoria para buffers admin");
+        log(ERROR, "%s", "Error alocando memoria para buffers admin");
         free(read_buf_data);
         free(write_buf_data);
         free(conn);
@@ -103,7 +103,7 @@ void admin_connection_destroy(struct admin_connection *conn) {
     }
     
     free(conn);
-    log(DEBUG, "Conexión admin destruida");
+    log(DEBUG, "%s", "Conexión admin destruida");
 }
 
 // ========================================
@@ -160,7 +160,7 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
         log(ERROR, "Error en recv() admin auth: %s", strerror(errno));
         return ST_ADMIN_DONE;
     } else if (n == 0) {
-        log(INFO, "Conexión cerrada por cliente admin durante auth");
+        log(INFO, "%s", "Conexión cerrada por cliente admin durante auth");
         return ST_ADMIN_DONE;
     }
     
@@ -169,7 +169,7 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
     // Procesar auth
     int result = admin_process_auth(conn);
     if (result < 0) {
-        log(INFO, "Autenticación admin fallida");
+        log(INFO, "%s", "Autenticación admin fallida");
         return ST_ADMIN_DONE;
     }
     if (result == 0) {
@@ -178,7 +178,7 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
     
     // auth exitosa
     log(INFO, "Cliente admin autenticado exitosamente desde %s", conn->client_address);
-    log(DEBUG, "Transición: ST_ADMIN_AUTH -> ST_ADMIN_COMMAND");
+    log(DEBUG, "%s", "Transición: ST_ADMIN_AUTH -> ST_ADMIN_COMMAND");
     return ST_ADMIN_COMMAND;
 }
 
@@ -186,7 +186,7 @@ static unsigned on_admin_command_read(struct selector_key *key) {
     struct admin_connection *conn = key->data;
     if (conn->destroying) return ST_ADMIN_DONE;
     
-    log(DEBUG, "Procesando comando en estado ST_ADMIN_COMMAND");
+    log(DEBUG, "%s", "Procesando comando en estado ST_ADMIN_COMMAND");
     
     selector_set_interest_key(key, OP_READ);
     buffer *b = &conn->read_buf;
@@ -203,7 +203,7 @@ static unsigned on_admin_command_read(struct selector_key *key) {
         log(ERROR, "Error en recv() admin command: %s", strerror(errno));
         return ST_ADMIN_DONE;
     } else if (n == 0) {
-        log(INFO, "Conexión cerrada por cliente admin durante command");
+        log(INFO, "%s", "Conexión cerrada por cliente admin durante command");
         return ST_ADMIN_DONE;
     }
     
@@ -212,7 +212,7 @@ static unsigned on_admin_command_read(struct selector_key *key) {
     // Procesar comando
     int result = admin_process_command(conn);
     if (result < 0) {
-        log(ERROR, "Error procesando comando admin");
+        log(ERROR, "%s", "Error procesando comando admin");
         return ST_ADMIN_DONE;
     }
     if (result == 0) {
@@ -263,7 +263,7 @@ static unsigned on_admin_response_write(struct selector_key *key) {
 
 static void on_admin_done_arrival(unsigned state, struct selector_key *key) {
     struct admin_connection *conn = key->data;
-    log(DEBUG, "Entrando en estado ADMIN_DONE");
+    log(DEBUG, "%s", "Entrando en estado ADMIN_DONE");
     
     // Desregistrar del selector
     selector_unregister_fd(key->s, conn->client_fd);
@@ -316,13 +316,13 @@ int admin_process_auth(struct admin_connection *conn) {
     conn->authenticated = true;
     admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
     
-    log(INFO, "Cliente admin autenticado exitosamente");
+    log(INFO, "%s", "Cliente admin autenticado exitosamente");
     return 1;
 }
 
 int admin_process_command(struct admin_connection *conn) {
     if (!conn->authenticated) {
-        log(ERROR, "Cliente admin no autenticado intentando ejecutar comando");
+        log(ERROR, "%s", "Cliente admin no autenticado intentando ejecutar comando");
         admin_send_response(conn, ADMIN_REP_AUTH_FAILURE, NULL, 0);
         return -1;
     }
@@ -394,7 +394,7 @@ int admin_process_command(struct admin_connection *conn) {
             result = admin_handle_set_timeout(conn, data_ptr, data_len);
             break;
         case ADMIN_CMD_QUIT:
-            log(INFO, "Cliente admin solicitó desconexión");
+            log(INFO, "%s", "Cliente admin solicitó desconexión");
             admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
             return -1;  // para cerrar conexión
         default:
@@ -442,7 +442,7 @@ int admin_send_response(struct admin_connection *conn, uint8_t response_code,
 // ========================================
 
 int admin_handle_list_users(struct admin_connection *conn) {
-    log(INFO, "Ejecutando comando LIST_USERS");
+    log(INFO, "%s", "Ejecutando comando LIST_USERS");
     
     struct user_credentials users[MAX_USERS];
     size_t count = users_list(users, MAX_USERS);
@@ -465,22 +465,22 @@ int admin_handle_list_users(struct admin_connection *conn) {
 }
 
 int admin_handle_add_user(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando ADD_USER");
+    log(INFO, "%s", "Ejecutando comando ADD_USER");
     
     if (len < 2) {
-        log(ERROR, "Datos insuficientes para ADD_USER");
+        log(ERROR, "%s", "Datos insuficientes para ADD_USER");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
     uint8_t username_len = data[0];
     if (len < 1 + username_len + 1) {
-        log(ERROR, "Datos insuficientes para ADD_USER");
+        log(ERROR, "%s", "Datos insuficientes para ADD_USER");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
     uint8_t password_len = data[1 + username_len];
     if (len < 1 + username_len + 1 + password_len) {
-        log(ERROR, "Datos insuficientes para ADD_USER");
+        log(ERROR, "%s", "Datos insuficientes para ADD_USER");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
@@ -502,16 +502,16 @@ int admin_handle_add_user(struct admin_connection *conn, const uint8_t *data, ui
 }
 
 int admin_handle_del_user(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando DEL_USER");
+    log(INFO, "%s", "Ejecutando comando DEL_USER");
     
     if (len < 1) {
-        log(ERROR, "Datos insuficientes para DEL_USER");
+        log(ERROR, "%s", "Datos insuficientes para DEL_USER");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
     uint8_t username_len = data[0];
     if (len < 1 + username_len) {
-        log(ERROR, "Datos insuficientes para DEL_USER");
+        log(ERROR, "%s", "Datos insuficientes para DEL_USER");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
@@ -531,7 +531,7 @@ int admin_handle_del_user(struct admin_connection *conn, const uint8_t *data, ui
 }
 
 int admin_handle_get_metrics(struct admin_connection *conn) {
-    log(INFO, "Ejecutando comando GET_METRICS");
+    log(INFO, "%s", "Ejecutando comando GET_METRICS");
     
     struct socks5_metrics metrics = metrics_get_snapshot();
     
@@ -567,10 +567,10 @@ int admin_handle_get_metrics(struct admin_connection *conn) {
 }
 
 int admin_handle_set_log_level(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando SET_LOG_LEVEL");
+    log(INFO, "%s", "Ejecutando comando SET_LOG_LEVEL");
     
     if (len < 1) {
-        log(ERROR, "Datos insuficientes para SET_LOG_LEVEL");
+        log(ERROR, "%s", "Datos insuficientes para SET_LOG_LEVEL");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
@@ -589,10 +589,10 @@ int admin_handle_set_log_level(struct admin_connection *conn, const uint8_t *dat
 }
 
 int admin_handle_set_max_connections(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando SET_MAX_CONNECTIONS");
+    log(INFO, "%s", "Ejecutando comando SET_MAX_CONNECTIONS");
     
     if (len < 4) {
-        log(ERROR, "Datos insuficientes para SET_MAX_CONNECTIONS");
+        log(ERROR, "%s", "Datos insuficientes para SET_MAX_CONNECTIONS");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
@@ -610,10 +610,10 @@ int admin_handle_set_max_connections(struct admin_connection *conn, const uint8_
 }
 
 int admin_handle_set_buffer_size(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando SET_BUFFER_SIZE");
+    log(INFO, "%s", "Ejecutando comando SET_BUFFER_SIZE");
     
     if (len < 4) {
-        log(ERROR, "Datos insuficientes para SET_BUFFER_SIZE");
+        log(ERROR, "%s", "Datos insuficientes para SET_BUFFER_SIZE");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     
@@ -631,10 +631,10 @@ int admin_handle_set_buffer_size(struct admin_connection *conn, const uint8_t *d
 }
 
 int admin_handle_set_timeout(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "Ejecutando comando SET_TIMEOUT");
+    log(INFO, "%s", "Ejecutando comando SET_TIMEOUT");
     
     if (len < 4) {
-        log(ERROR, "Datos insuficientes para SET_TIMEOUT");
+        log(ERROR, "%s", "Datos insuficientes para SET_TIMEOUT");
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }
     

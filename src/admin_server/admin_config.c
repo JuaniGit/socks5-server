@@ -79,5 +79,4 @@ void admin_config_init(void) {
     global_config.config_changed = false;
     pthread_mutex_unlock(&config_mutex);
     
-    log(INFO, "Configuración admin inicializada con valores por defecto");
-}
+    log(INFO, "%s", "Configuración admin inicializada con valores por defecto"); }
