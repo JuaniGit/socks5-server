@@ -27,6 +27,7 @@ struct server_config {
     
     bool access_log_enabled;
     bool password_log_enabled;
+    char access_log_file[MAX_ADDRESS_LEN];
 };
 
 void config_init(struct server_config *config);

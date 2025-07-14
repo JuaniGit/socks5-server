@@ -2,6 +2,8 @@
 #define SOCKS5_H
 
 #include "../selector.h"
+
+struct socks5_connection; // Forward declaration
 #include "connection.h"  // Para struct socks5_connection
 
 // constantes
@@ -46,5 +48,6 @@ int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method);
 int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_code);
 int socks5_userpass_auth(struct socks5_connection *conn);
 int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status);
+void socks5_set_reply_code(struct socks5_connection *conn, uint8_t reply_code);
 
 #endif

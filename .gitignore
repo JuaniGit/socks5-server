@@ -65,3 +65,6 @@ obj/
 
 # Information files
 instructions.txt
+
+# Log files
+*.log

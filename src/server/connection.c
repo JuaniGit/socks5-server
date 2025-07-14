@@ -1,6 +1,8 @@
 #define _POSIX_C_SOURCE 200112L
 #include "connection.h"
 #include "../shared/logger.h"
+#include "../shared/access_logger.h"
+#include "../shared/util.h"
 #include "socks5.h"
 #include "../shared/metrics.h"
 #include <stdlib.h>
@@ -67,7 +69,7 @@ static double get_time_diff_ms(struct timeval *start, struct timeval *end) {
 // Creación y destrucción
 // ==============================
 
-struct socks5_connection *socks5_connection_new(int client_fd) {
+struct socks5_connection *socks5_connection_new(int client_fd, const struct sockaddr *client_addr) {
     struct socks5_connection *conn = calloc(1, sizeof(*conn));
     if (!conn) {
         log(ERROR, "%s", "Error alocando memoria para conexión SOCKS5");
@@ -82,6 +84,21 @@ struct socks5_connection *socks5_connection_new(int client_fd) {
     conn->destroying = false;
     
     gettimeofday(&conn->start_time, NULL);
+
+    // Guardar IP y puerto del cliente
+    if (client_addr->sa_family == AF_INET) {
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)client_addr;
+        inet_ntop(AF_INET, &(ipv4->sin_addr), conn->client_ip, sizeof(conn->client_ip));
+        conn->client_port = ntohs(ipv4->sin_port);
+    } else if (client_addr->sa_family == AF_INET6) {
+        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)client_addr;
+        inet_ntop(AF_INET6, &(ipv6->sin6_addr), conn->client_ip, sizeof(conn->client_ip));
+        conn->client_port = ntohs(ipv6->sin6_port);
+    } else {
+        strncpy(conn->client_ip, "UNKNOWN", sizeof(conn->client_ip));
+        conn->client_port = 0;
+    }
+    conn->socks5_reply_code = SOCKS5_REP_GENERAL_FAILURE;
     
     uint8_t *read_client_buf = malloc(4096);
     uint8_t *write_client_buf = malloc(4096);
@@ -440,6 +457,7 @@ static unsigned on_request_read(struct selector_key *key) {
         }
 
         log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+        conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
         return ST_STREAM;
     }
 }
@@ -484,6 +502,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     }
 
     log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+    conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
     return ST_STREAM;
 }
 
@@ -510,6 +529,7 @@ static unsigned on_connect_block(struct selector_key *key) {
     }
 
     log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+    conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
     return ST_STREAM;
 }
 
@@ -638,6 +658,27 @@ static unsigned on_stream_write(struct selector_key *key) {
 static void on_done_arrival(unsigned state, struct selector_key *key) {
     struct socks5_connection *conn = key->data;
     log(DEBUG, "%s", "Entrando en estado DONE");
+
+    struct access_log_info log_info;
+    memset(&log_info, 0, sizeof(log_info));
+
+    log_info.timestamp = time(NULL);
+    strncpy(log_info.username, conn->auth_username, sizeof(log_info.username) - 1);
+    strncpy(log_info.client_ip, conn->client_ip, sizeof(log_info.client_ip) - 1);
+    log_info.client_port = conn->client_port;
+    strncpy(log_info.target_host, conn->target_host, sizeof(log_info.target_host) - 1);
+    log_info.target_port = conn->target_port;
+
+    if (conn->authenticated && conn->remote_fd != -1) {
+        snprintf(log_info.status, sizeof(log_info.status), "%u", SOCKS5_REP_SUCCESS);
+    } else {
+        if (!conn->authenticated && conn->socks5_reply_code == SOCKS5_REP_GENERAL_FAILURE) {
+            strncpy(log_info.status, "AUTH_FAILED", sizeof(log_info.status) - 1);
+        } else {
+            snprintf(log_info.status, sizeof(log_info.status), "%u", conn->socks5_reply_code);
+        }
+    }
+    access_log(&log_info);
 
     if (!conn->client_closed && conn->client_fd != -1) {
         selector_unregister_fd(key->s, conn->client_fd);

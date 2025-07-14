@@ -50,6 +50,9 @@ void config_show_help(const char *program_name) {
     printf("       -u user:pass\n");
     printf("              Declara un usuario del proxy con su contraseña. Se puede\n");
     printf("              utilizar hasta 10 veces.\n");
+    printf("       -a archivo-log\n");
+    printf("              Archivo donde se registrarán los accesos. Por defecto, se\n");
+    printf("              imprime en la salida estándar.\n");
     printf("       -v     Imprime información sobre la versión y termina.\n\n");
     
     printf("EJEMPLOS\n");
@@ -105,7 +108,7 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
 int config_parse_args(struct server_config *config, int argc, char *argv[]) {
     int opt;
     
-    while ((opt = getopt(argc, argv, "hl:NL:p:P:u:v")) != -1) {
+    while ((opt = getopt(argc, argv, "hl:NL:p:P:u:va:")) != -1) {
         switch (opt) {
             case 'h':
                 config->show_help = true;
@@ -149,6 +152,12 @@ int config_parse_args(struct server_config *config, int argc, char *argv[]) {
                 
             case 'v':
                 config->show_version = true;
+                break;
+
+            case 'a':
+                strncpy(config->access_log_file, optarg, MAX_ADDRESS_LEN - 1);
+                config->access_log_file[MAX_ADDRESS_LEN - 1] = '\0';
+                config->access_log_enabled = true;
                 break;
                 
             case '?':

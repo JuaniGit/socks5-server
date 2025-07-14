@@ -149,3 +149,8 @@ size_t users_list(struct user_credentials *output, size_t max_count) {
     
     return count;
 }
+
+void users_destroy(void) {
+    users_count = 0;
+    // No need to free memory for users_db as it's a global array
+}

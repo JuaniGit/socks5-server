@@ -12,6 +12,7 @@
 #include "../shared/logger.h"
 #include "../buffer.h"
 #include "../selector.h"
+#include "connection.h"
 
 #define SOCKS5_VERSION 0x05
 #define NO_AUTH 0x00
@@ -136,6 +137,8 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
 int socks5_send_auth_response(struct socks5_connection *conn, uint8_t method) {
     uint8_t response[2] = {SOCKS5_VERSION, method};
     
+    socks5_set_reply_code(conn, method);
+
     ssize_t sent = send(conn->client_fd, response, 2, MSG_NOSIGNAL);
     if (sent != 2) {
         log(ERROR, "Error enviando respuesta de autenticación: %s", strerror(errno));
@@ -205,10 +208,12 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
                 
                 log(DEBUG, "Usuario '%s' autenticado exitosamente usando parser híbrido", username);
                 socks5_send_userpass_response(conn, USERPASS_SUCCESS);
+                socks5_set_reply_code(conn, SOCKS5_REP_SUCCESS);
                 return 1;
             } else {
                 log(DEBUG, "Credenciales inválidas para usuario '%s'", username);
                 socks5_send_userpass_response(conn, USERPASS_FAILURE);
+                socks5_set_reply_code(conn, SOCKS5_REP_GENERAL_FAILURE);
                 return -1;
             }
         }
@@ -218,6 +223,8 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
     
     return 0;
 }
+
+int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status);
 
 int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status) {
     uint8_t response[2] = {USERPASS_VERSION, status};
@@ -230,6 +237,12 @@ int socks5_send_userpass_response(struct socks5_connection *conn, uint8_t status
     
     log(DEBUG, "Respuesta de autenticación usuario/contraseña enviada: status=%d", status);
     return 0;
+}
+
+void socks5_set_reply_code(struct socks5_connection *conn, uint8_t reply_code) {
+    if (conn) {
+        conn->socks5_reply_code = reply_code;
+    }
 }
 
 int socks5_process_request(struct socks5_connection *conn) {
@@ -332,6 +345,8 @@ int socks5_send_request_response(struct socks5_connection *conn, uint8_t reply_c
         0, 0, 0, 0,        // BND.ADDR (0.0.0.0)
         0, 0               // BND.PORT (0)
     };
+
+    socks5_set_reply_code(conn, reply_code);
 
     ssize_t sent = send(conn->client_fd, response, sizeof(response), MSG_NOSIGNAL);
     if (sent != sizeof(response)) {

@@ -66,13 +66,14 @@ struct socks5_connection {
     bool destroying;  // para evitar double cleanup
 
     char client_address_str[128];
+    char client_ip[46];
+    int client_port;
+    uint8_t socks5_reply_code;
     
     struct timeval start_time;
-
-    // TODO: despues capaz se van a agregar más flags y etc -> mas chiche
 };
 
-struct socks5_connection *socks5_connection_new(int client_fd);
+struct socks5_connection *socks5_connection_new(int client_fd, const struct sockaddr *client_addr);
 void socks5_connection_destroy(struct socks5_connection *conn);
 extern const struct fd_handler socks5_handler;
 
