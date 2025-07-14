@@ -130,9 +130,9 @@ void metrics_connection_started(void) {
     
     pthread_mutex_unlock(&metrics_mutex);
     
-    log(DEBUG, "Métrica: Nueva conexión iniciada. Total: %lu, Actuales: %lu", 
-        global_metrics.connections.total_connections, 
-        global_metrics.connections.current_connections);
+    //log(DEBUG, "Métrica: Nueva conexión iniciada. Total: %lu, Actuales: %lu", 
+    //    global_metrics.connections.total_connections, 
+    //    global_metrics.connections.current_connections);
 }
 
 void metrics_connection_ended(bool successful, double connection_time_ms) {
@@ -248,10 +248,10 @@ void metrics_bytes_transferred(uint64_t from_client, uint64_t to_client,
     
     pthread_mutex_unlock(&metrics_mutex);
     
-    if (from_client + to_client + from_remote + to_remote > 0) {
-        log(DEBUG, "Métrica: Bytes transferidos - Cliente: %lu->%lu, Remoto: %lu->%lu", 
-            from_client, to_client, from_remote, to_remote);
-    }
+    //if (from_client + to_client + from_remote + to_remote > 0) {
+    //    log(DEBUG, "Métrica: Bytes transferidos - Cliente: %lu->%lu, Remoto: %lu->%lu", 
+    //        from_client, to_client, from_remote, to_remote);
+    //}
 }
 
 struct socks5_metrics metrics_get_snapshot(void) {

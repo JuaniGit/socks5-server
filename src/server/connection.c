@@ -456,7 +456,7 @@ static unsigned on_request_read(struct selector_key *key) {
             return ST_DONE;
         }
 
-        log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+        log(DEBUG, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
         conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
         return ST_STREAM;
     }
@@ -501,7 +501,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
         return ST_DONE;
     }
 
-    log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+    log(DEBUG, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
     conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
     return ST_STREAM;
 }
@@ -528,7 +528,7 @@ static unsigned on_connect_block(struct selector_key *key) {
         return ST_DONE;
     }
 
-    log(INFO, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
+    log(DEBUG, "Conexión establecida exitosamente con %s:%d", conn->target_host, conn->target_port);
     conn->socks5_reply_code = SOCKS5_REP_SUCCESS;
     return ST_STREAM;
 }

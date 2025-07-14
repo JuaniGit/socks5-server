@@ -117,7 +117,7 @@ static void accept_handler(struct selector_key* key) {
     // Registrar métricas
     metrics_connection_started();
 
-    log(INFO, "Cliente registrado desde %s (fd=%d). Conexiones activas: %lu", 
+    log(DEBUG, "Cliente registrado desde %s (fd=%d). Conexiones activas: %lu", 
         client_addr_str, client_fd, metrics_get_current_connections());
 }
 
@@ -415,7 +415,7 @@ int main(int argc, char* argv[]) {
     while (running) {
         selector_status s = selector_select(selector);
         if (s == SELECTOR_IO && errno == EBADF) {
-            log(INFO, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
+            log(DEBUG, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
             continue;
         } else if (s != SELECTOR_SUCCESS && !(errno == EINTR || errno == EAGAIN)) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));

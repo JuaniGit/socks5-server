@@ -83,7 +83,7 @@ bool users_validate(const char *username, const char *password) {
         }
     }
     
-    log(INFO, "Intento de autenticación fallido para usuario '%s'", username);
+    log(DEBUG, "Intento de autenticación fallido para usuario '%s'", username);
     return false;
 }
 
@@ -114,7 +114,7 @@ bool users_add(const char *username, const char *password) {
     users_db[users_count].active = true;
     users_count++;
     
-    log(INFO, "Usuario '%s' agregado exitosamente", username);
+    log(DEBUG, "Usuario '%s' agregado exitosamente", username);
     return true;
 }
 
