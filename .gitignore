@@ -51,14 +51,17 @@ Module.symvers
 Mkfile.old
 dkms.conf
 
-#bin
+# bin
 bin/
 
-#obj
+# obj
 obj/
 
-#vscode
+# vscode
 .vscode/
 
-#MAC
+# MAC
 .DS_Store/
+
+# Information files
+instructions.txt

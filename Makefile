@@ -19,7 +19,7 @@ SHARED_OBJECTS = $(SHARED_SOURCES:src/%.c=$(OBJECTS_FOLDER)/%.o)
 ROOT_OBJECTS   = $(ROOT_SOURCES:src/%.c=$(OBJECTS_FOLDER)/%.o)
 
 # === Binarios resultantes ===
-SERVER_OUTPUT_FILE = $(OUTPUT_FOLDER)/socks5
+SERVER_OUTPUT_FILE = $(OUTPUT_FOLDER)/socks5d
 CLIENT_OUTPUT_FILE = $(OUTPUT_FOLDER)/client
 
 # === Targets principales ===

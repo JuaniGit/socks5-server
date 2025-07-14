@@ -65,7 +65,7 @@ bool users_init(const char *csv_file) {
         return false;
     }
     
-    log(INFO, "Sistema de usuarios inicializado con %zu usuarios desde %s", users_count, csv_file);
+    log(INFO, "Usuarios desde archivo cargados exitosamente con %zu usuarios desde %s", users_count, csv_file);
     return true;
 }
 

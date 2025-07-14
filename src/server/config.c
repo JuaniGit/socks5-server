@@ -23,7 +23,7 @@ void config_init(struct server_config *config) {
     config->access_log_enabled = true;
     config->password_log_enabled = true;
     
-    log(DEBUG, "%s", "Configuración inicializada con valores por defecto");
+    log(INFO, "%s", "Configuración inicializada con valores por defecto");
 }
 
 void config_show_help(const char *program_name) {

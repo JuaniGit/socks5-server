@@ -44,7 +44,7 @@ static void admin_accept_handler_func(struct selector_key* key) {
         return;
     }
 
-    log(INFO, "Nueva conexión admin aceptada (fd=%d)", client_fd);
+    log(DEBUG, "Nueva conexión admin aceptada (fd=%d)", client_fd);
 
     // Hacer no bloqueante
     if (selector_fd_set_nio(client_fd) < 0) {
@@ -73,7 +73,7 @@ static void admin_accept_handler_func(struct selector_key* key) {
         return;
     }
 
-    log(INFO, "Cliente admin registrado desde %s (fd=%d)", conn->client_address, client_fd);
+    log(DEBUG, "Cliente admin registrado desde %s (fd=%d)", conn->client_address, client_fd);
 }
 
 /**
@@ -91,7 +91,7 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
-    log(INFO, "Nueva conexión aceptada (fd=%d)", client_fd);
+    log(DEBUG, "Nueva conexión aceptada (fd=%d)", client_fd);
 
     // Hacer no bloqueante
     if (selector_fd_set_nio(client_fd) < 0) {
@@ -108,7 +108,7 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
-    log(INFO, "Conexión SOCKS5 creada para fd=%d", client_fd);
+    log(DEBUG, "Conexión SOCKS5 creada para fd=%d", client_fd);
 
     // Registrar en el selector con el handler global
     selector_status s = selector_register(key->s, client_fd, &socks5_handler, OP_READ, conn);
@@ -124,7 +124,7 @@ static void accept_handler(struct selector_key* key) {
 
     char client_addr_str[128];
     printSocketAddress((struct sockaddr*)&client_addr, client_addr_str);
-    log(INFO, "Cliente registrado desde %s (fd=%d). Conexiones activas: %lu", 
+    log(DEBUG, "Cliente registrado desde %s (fd=%d). Conexiones activas: %lu", 
         client_addr_str, client_fd, metrics_get_current_connections());
 }
 
@@ -251,7 +251,7 @@ static void load_cli_users(struct server_config *config) {
             bool success = users_add(config->cli_users[i].username, 
                                    config->cli_users[i].password);
             if (success) {
-                log(INFO, "Usuario cargado desde CLI: %s", config->cli_users[i].username);
+                log(DEBUG, "Usuario cargado desde CLI: %s", config->cli_users[i].username);
             } else {
                 log(ERROR, "Error cargando usuario desde CLI: %s", config->cli_users[i].username);
             }
@@ -293,7 +293,7 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }
     
-    setLogLevel(DEBUG);
+    setLogLevel(INFO);
     log(INFO, "%s", "Inicializando servidor SOCKS5...");
     log(INFO, "%s", "Configuración:");
     log(INFO, "  - Puerto SOCKS: %d", global_config.socks_port);
@@ -408,7 +408,7 @@ int main(int argc, char* argv[]) {
     while (running) {
         selector_status s = selector_select(selector);
         if (s == SELECTOR_IO && errno == EBADF) {
-            log(ERROR, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
+            log(DEBUG, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
             continue;
         } else if (s != SELECTOR_SUCCESS && !(errno == EINTR || errno == EAGAIN)) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));

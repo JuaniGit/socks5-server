@@ -125,11 +125,11 @@ int socks5_auth_negotiate(struct socks5_connection *conn) {
     }
 
     if (method == SOCKS5_AUTH_NO_ACCEPTABLE) {
-        log(INFO, "%s", "No hay método de autenticación aceptable");
+        log(DEBUG, "%s", "No hay método de autenticación aceptable");
         return -1; 
     }
 
-    log(INFO, "Autenticación negociada exitosamente, método: 0x%02x", method);
+    log(DEBUG, "Autenticación negociada exitosamente, método: 0x%02x", method);
     return 1; 
 }
 
@@ -203,11 +203,11 @@ int socks5_userpass_auth(struct socks5_connection *conn) {
                 conn->auth_username[sizeof(conn->auth_username) - 1] = '\0';
                 conn->authenticated = true;
                 
-                log(INFO, "Usuario '%s' autenticado exitosamente usando parser híbrido", username);
+                log(DEBUG, "Usuario '%s' autenticado exitosamente usando parser híbrido", username);
                 socks5_send_userpass_response(conn, USERPASS_SUCCESS);
                 return 1;
             } else {
-                log(INFO, "Credenciales inválidas para usuario '%s'", username);
+                log(DEBUG, "Credenciales inválidas para usuario '%s'", username);
                 socks5_send_userpass_response(conn, USERPASS_FAILURE);
                 return -1;
             }
@@ -318,7 +318,7 @@ int socks5_process_request(struct socks5_connection *conn) {
 
     buffer_read_adv(b, total_len);
 
-    log(INFO, "Request SOCKS5: conectar a %s:%d (tipo: %d)", conn->target_host, conn->target_port, atyp);
+    log(DEBUG, "Request SOCKS5: conectar a %s:%d (tipo: %d)", conn->target_host, conn->target_port, atyp);
     return 1; 
 }
 
@@ -364,7 +364,7 @@ int socks5_finish_connection(struct socks5_connection *conn) {
         if (connect_result == 0) {
             char addr_str[128];
             printSocketAddress(addr->ai_addr, addr_str);
-            log(INFO, "Conectado exitosamente a %s", addr_str);
+            log(DEBUG, "Conectado exitosamente a %s", addr_str);
             break;
         }
         
@@ -386,6 +386,6 @@ int socks5_finish_connection(struct socks5_connection *conn) {
     }
     
     conn->remote_fd = remote_fd;
-    log(INFO, "Conexión establecida a %s:%d (fd=%d)", conn->target_host, conn->target_port, remote_fd);
+    log(DEBUG, "Conexión establecida a %s:%d (fd=%d)", conn->target_host, conn->target_port, remote_fd);
     return 0;
 }

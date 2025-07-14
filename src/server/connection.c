@@ -277,7 +277,7 @@ static unsigned on_auth_read(struct selector_key *key) {
         log(ERROR, "%s", "recv() falló");
         return ST_DONE;
     } else if (n == 0) {
-        log(INFO, "%s", "Conexión cerrada por el cliente");
+        log(DEBUG, "%s", "Conexión cerrada por el cliente");
         return ST_DONE;
     }
 
@@ -287,15 +287,15 @@ static unsigned on_auth_read(struct selector_key *key) {
     if (res < 0) return ST_DONE;  
     if (res == 0) return ST_AUTH;    
     
-    log(INFO, "Autenticación negociada, método: 0x%02x", conn->auth_method);
+    log(DEBUG, "Autenticación negociada, método: 0x%02x", conn->auth_method);
     
     metrics_auth_method_used(conn->auth_method, true, NULL);
     
     if (conn->auth_method == SOCKS5_AUTH_USERPASS) {
-        log(INFO, "%s", "Esperando credenciales de usuario/contraseña");
+        log(DEBUG, "%s", "Esperando credenciales de usuario/contraseña");
         return ST_AUTH_USERPASS;
     } else {
-        log(INFO, "%s", "Sin autenticación requerida, pasando a REQUEST");
+        log(DEBUG, "%s", "Sin autenticación requerida, pasando a REQUEST");
         return ST_REQUEST;
     }
 }
@@ -323,7 +323,7 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
         log(ERROR, "recv() falló en auth userpass: %s", strerror(errno));
         return ST_DONE;
     } else if (n == 0) {
-        log(INFO, "%s", "Conexión cerrada por el cliente durante auth userpass");
+        log(DEBUG, "%s", "Conexión cerrada por el cliente durante auth userpass");
         return ST_DONE;
     }
 
@@ -336,7 +336,7 @@ static unsigned on_auth_userpass_read(struct selector_key *key) {
     }
     if (res == 0) return ST_AUTH_USERPASS;
     
-    log(INFO, "Usuario autenticado exitosamente: %s", conn->auth_username);
+    log(DEBUG, "Usuario autenticado exitosamente: %s", conn->auth_username);
     
     metrics_auth_method_used(SOCKS5_AUTH_USERPASS, true, conn->auth_username);
     
@@ -365,7 +365,7 @@ static unsigned on_request_read(struct selector_key *key) {
             log(ERROR, "recv() falló en request: %s", strerror(errno));
             return ST_DONE;
         } else if (n == 0) {
-            log(INFO, "%s", "Conexión cerrada por el cliente durante request");
+            log(DEBUG, "%s", "Conexión cerrada por el cliente durante request");
             return ST_DONE;
         }
         
@@ -378,12 +378,12 @@ static unsigned on_request_read(struct selector_key *key) {
     if (res < 0) return ST_DONE;     
     if (res == 0) return ST_REQUEST;
     
-    log(INFO, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
+    log(DEBUG, "Request procesado exitosamente, conectando a %s:%d", conn->target_host, conn->target_port);
     
     metrics_request_type(conn->target_atyp);
     
     if (conn->target_atyp == SOCKS5_ATYP_DOMAINNAME) {
-        log(INFO, "Iniciando resolución DNS asíncrona para %s", conn->target_host);
+        log(DEBUG, "Iniciando resolución DNS asíncrona para %s", conn->target_host);
         start_resolve_async(conn, key->s);
         return ST_RESOLVING;
     } else {
@@ -463,7 +463,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     conn->addr_list = conn->dns_job->result;
     conn->dns_job->result = NULL; // imp!! para evitar double free
     
-    log(INFO, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
+    log(DEBUG, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
     
     if (socks5_finish_connection(conn) < 0) {
         log(ERROR, "%s", "Error conectando al servidor remoto");
@@ -548,7 +548,7 @@ static unsigned on_stream_read(struct selector_key *key) {
         log(ERROR, "Error en recv(): %s", strerror(errno));
         return ST_DONE;
     } else if (n == 0) {
-        log(INFO, "Conexión cerrada por %s", (from_fd == conn->client_fd) ? "cliente" : "servidor remoto");
+        log(DEBUG, "Conexión cerrada por %s", (from_fd == conn->client_fd) ? "cliente" : "servidor remoto");
         return ST_DONE;
     }
     
