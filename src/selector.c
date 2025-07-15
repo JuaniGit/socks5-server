@@ -464,7 +464,6 @@ handle_iteration(fd_selector s) {
                     } else if(item->handler->handle_read == NULL) {
                         fprintf(stderr, "SEGFAULT: handle_read NULL en fd %d\n", item->fd);
                     } else {
-                        // printf("HANDLING READ\n");
                         item->handler->handle_read(&key);
                     }
                 }
@@ -474,7 +473,6 @@ handle_iteration(fd_selector s) {
                     if(0 == item->handler->handle_write) {
                         assert(("OP_WRITE arrived but no handler. bug!" == 0));
                     } else {
-                        printf("HANDLING WRITE\n");
                         item->handler->handle_write(&key);
                     }
                 }

@@ -55,8 +55,6 @@ struct performance_metrics {
 
 // métricas de usuarios
 struct user_metrics {
-    char most_active_user[256];          // Usuario más activo
-    uint64_t most_active_user_connections; // Conexiones del usuario más activo
     uint64_t unique_users_count;         // Cantidad de usuarios únicos que se conectaron
 };
 
@@ -95,6 +93,5 @@ uint64_t metrics_get_connections_per_minute(void);
 void metrics_reset(void);
 uint64_t metrics_get_uptime_seconds(void);
 void metrics_print_summary(void);
-char* metrics_to_json(void);
 
 #endif

@@ -167,7 +167,6 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
     }
     
     userpass_parser_data_init(&conn->userpass_data);
-    log(DEBUG, "%s", "Parser híbrido inicializado correctamente");
 
     if (active_count < admin_global_config.max_connections) {
         active_connections[active_count++] = conn;
@@ -195,7 +194,7 @@ void socks5_connection_destroy(struct socks5_connection *conn, fd_selector s) {
     gettimeofday(&end_time, NULL);
     double connection_time_ms = get_time_diff_ms(&conn->start_time, &end_time);
     
-    bool successful = conn->authenticated && (conn->remote_fd != -1);
+    bool successful = conn->authenticated;
     metrics_connection_ended(successful, connection_time_ms);
 
     if (conn->addr_list) {
@@ -694,10 +693,11 @@ static void on_done_arrival(unsigned state, struct selector_key *key) {
     }
     access_log(&log_info);
 
-    if (conn->client_fd != -1) {
-        selector_unregister_fd(key->s, conn->client_fd);
-    }
     if (conn->remote_fd != -1) {
         selector_unregister_fd(key->s, conn->remote_fd);
     }
+    if (conn->client_fd != -1) {
+        selector_unregister_fd(key->s, conn->client_fd);
+    }
+    
 }

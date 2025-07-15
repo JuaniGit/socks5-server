@@ -482,12 +482,6 @@ int main(int argc, char* argv[]) {
             log(ERROR, "Error en selector_select: %s", selector_error(s));
             break;
         }
-
-        time_t now = time(NULL);
-        if (now - last_stats >= 60) {
-            metrics_print_summary();
-            last_stats = now;
-        }
     }
 
     log(INFO, "%s", "Señal recibida, saliendo del bucle principal");

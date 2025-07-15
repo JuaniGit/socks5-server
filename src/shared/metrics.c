@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200112L
 #include "metrics.h"
 #include <stdlib.h>
 #include <string.h>
@@ -65,14 +66,6 @@ static void add_unique_user(const char *username) {
         unique_users_count++;
         global_metrics.users.unique_users_count = unique_users_count;
     }
-}
-
-static void update_most_active_user(const char *username) {
-    if (!username) return;
-    
-    strncpy(global_metrics.users.most_active_user, username, 255);
-    global_metrics.users.most_active_user[255] = '\0';
-    global_metrics.users.most_active_user_connections++;
 }
 
 bool metrics_init(void) {
@@ -161,7 +154,6 @@ void metrics_auth_method_used(uint8_t auth_method, bool success, const char *use
                 global_metrics.connections.auth_userpass_success++;
                 if (username) {
                     add_unique_user(username);
-                    update_most_active_user(username);
                 }
             } else {
                 global_metrics.connections.auth_userpass_failed++;
@@ -321,18 +313,7 @@ void metrics_print_summary(void) {
     printf("Por minuto: %lu\n", snapshot.performance.connections_per_minute);
     
     printf("\n--- Autenticación ---\n");
-    printf("Usuario/contraseña exitosas: %lu\n", snapshot.connections.auth_userpass_success);
-    printf("Usuario/contraseña fallidas: %lu\n", snapshot.connections.auth_userpass_failed);
     printf("Usuarios únicos: %lu\n", snapshot.users.unique_users_count);
-    if (strlen(snapshot.users.most_active_user) > 0) {
-        printf("Usuario más activo: %s (%lu conexiones)\n", 
-               snapshot.users.most_active_user, snapshot.users.most_active_user_connections);
-    }
-    
-    printf("\n--- Tipos de Request ---\n");
-    printf("IPv4: %lu\n", snapshot.connections.requests_ipv4);
-    printf("IPv6: %lu\n", snapshot.connections.requests_ipv6);
-    printf("Dominios: %lu\n", snapshot.connections.requests_domain);
     
     printf("\n--- Transferencia de Datos ---\n");
     printf("Total transferido: %lu bytes (%.2f MB)\n", 
@@ -346,12 +327,6 @@ void metrics_print_summary(void) {
            snapshot.performance.current_throughput_bps,
            snapshot.performance.current_throughput_bps / 1024.0);
     
-    printf("\n--- Errores ---\n");
-    printf("Resolución DNS: %lu\n", snapshot.connections.errors_dns_resolution);
-    printf("Conexión rechazada: %lu\n", snapshot.connections.errors_connection_refused);
-    printf("Red no alcanzable: %lu\n", snapshot.connections.errors_network_unreachable);
-    printf("Generales: %lu\n", snapshot.connections.errors_general);
-    
     printf("\n--- Rendimiento ---\n");
     printf("Tiempo promedio de conexión: %.2f ms\n", snapshot.performance.avg_connection_time_ms);
     
@@ -362,79 +337,4 @@ void metrics_print_summary(void) {
     }
     
     printf("=====================================\n\n");
-}
-
-char* metrics_to_json(void) {
-    struct socks5_metrics snapshot = metrics_get_snapshot();
-    uint64_t uptime = metrics_get_uptime_seconds();
-    
-    char *json = malloc(2048);
-    if (!json) return NULL;
-    
-    snprintf(json, 2048,
-        "{\n"
-        "  \"uptime_seconds\": %lu,\n"
-        "  \"connections\": {\n"
-        "    \"total\": %lu,\n"
-        "    \"current\": %lu,\n"
-        "    \"successful\": %lu,\n"
-        "    \"failed\": %lu,\n"
-        "    \"max_concurrent\": %lu,\n"
-        "    \"per_minute\": %lu\n"
-        "  },\n"
-        "  \"authentication\": {\n"
-        "    \"userpass_success\": %lu,\n"
-        "    \"userpass_failed\": %lu,\n"
-        "    \"unique_users\": %lu\n"
-        "  },\n"
-        "  \"requests\": {\n"
-        "    \"ipv4\": %lu,\n"
-        "    \"ipv6\": %lu,\n"
-        "    \"domain\": %lu\n"
-        "  },\n"
-        "  \"transfers\": {\n"
-        "    \"total_bytes\": %lu,\n"
-        "    \"from_client\": %lu,\n"
-        "    \"to_client\": %lu,\n"
-        "    \"from_remote\": %lu,\n"
-        "    \"to_remote\": %lu,\n"
-        "    \"throughput_bps\": %.2f\n"
-        "  },\n"
-        "  \"errors\": {\n"
-        "    \"dns_resolution\": %lu,\n"
-        "    \"connection_refused\": %lu,\n"
-        "    \"network_unreachable\": %lu,\n"
-        "    \"general\": %lu\n"
-        "  },\n"
-        "  \"performance\": {\n"
-        "    \"avg_connection_time_ms\": %.2f\n"
-        "  }\n"
-        "}",
-        uptime,
-        snapshot.connections.total_connections,
-        snapshot.connections.current_connections,
-        snapshot.connections.successful_connections,
-        snapshot.connections.failed_connections,
-        snapshot.performance.max_concurrent_connections,
-        snapshot.performance.connections_per_minute,
-        snapshot.connections.auth_userpass_success,
-        snapshot.connections.auth_userpass_failed,
-        snapshot.users.unique_users_count,
-        snapshot.connections.requests_ipv4,
-        snapshot.connections.requests_ipv6,
-        snapshot.connections.requests_domain,
-        snapshot.transfers.total_bytes_transferred,
-        snapshot.transfers.bytes_from_client,
-        snapshot.transfers.bytes_to_client,
-        snapshot.transfers.bytes_from_remote,
-        snapshot.transfers.bytes_to_remote,
-        snapshot.performance.current_throughput_bps,
-        snapshot.connections.errors_dns_resolution,
-        snapshot.connections.errors_connection_refused,
-        snapshot.connections.errors_network_unreachable,
-        snapshot.connections.errors_general,
-        snapshot.performance.avg_connection_time_ms
-    );
-    
-    return json;
 }
