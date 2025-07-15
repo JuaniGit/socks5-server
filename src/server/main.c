@@ -471,8 +471,6 @@ int main(int argc, char* argv[]) {
 
     log(INFO, "%s", "Esperando conexiones...");
 
-    time_t last_stats = time(NULL);    
-
     while (running) {
         selector_status s = selector_select(global_selector);
         if (s == SELECTOR_IO && errno == EBADF) {
