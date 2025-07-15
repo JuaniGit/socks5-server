@@ -330,8 +330,8 @@ void handle_set_log_level(int sock, int level) {
 }
 
 void handle_set_max_connections(int sock, int max_conn) {
-    if (max_conn < 1 || max_conn > 10000) {
-        printf("\nCantidad invalida. Debe estar entre 1 y 10000.\n\n");
+    if (max_conn < 1 || max_conn > 500) {
+        printf("\nCantidad invalida. Debe estar entre 1 y 500.\n\n");
         return;
     }
 

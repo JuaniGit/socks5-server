@@ -4,13 +4,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// config global del servidor que puede ser editada por admin
-struct admin_server_config {
-    uint32_t max_connections;
-    uint32_t buffer_size;
-    uint32_t timeout_seconds;
-    bool config_changed; 
-};
+typedef struct admin_server_config {
+    uint64_t max_connections;
+    bool config_changed;
+} admin_server_config;
 
 struct admin_server_config* admin_config_get(void);
 void admin_config_set_max_connections(uint32_t max_conn);

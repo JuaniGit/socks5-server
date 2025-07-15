@@ -573,7 +573,7 @@ int admin_handle_set_max_connections(struct admin_connection *conn, const uint8_
     
     uint32_t max_conn = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     
-    if (max_conn < 1 || max_conn > 10000) {
+    if (max_conn < 1 || max_conn > 500) {
         log(ERROR, "Valor inválido para máximo de conexiones: %u", max_conn);
         return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
     }

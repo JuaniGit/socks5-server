@@ -11,9 +11,12 @@
 #include <errno.h>
 #include <sys/time.h>
 #include <arpa/inet.h>
+#include "../admin_server/admin_config.h"
 
 #define BUFFER_SIZE 65536
 #define MAX_CONNECTIONS 1024
+
+extern admin_server_config admin_global_config;
 
 // Variable global para indicar si estamos en proceso de shutdown
 static bool server_shutting_down = false;
@@ -66,7 +69,7 @@ static const struct state_definition socks5_states[] = {
 };
 
 static struct socks5_connection *active_connections[MAX_CONNECTIONS] = { 0 };
-static size_t active_count = 0;
+size_t active_count = 0;
 
 // ==============================
 // Funciones auxiliares
@@ -166,7 +169,7 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
     userpass_parser_data_init(&conn->userpass_data);
     log(DEBUG, "%s", "Parser híbrido inicializado correctamente");
 
-    if (active_count < MAX_CONNECTIONS) {
+    if (active_count < admin_global_config.max_connections) {
         active_connections[active_count++] = conn;
     } else {
         log(FATAL, "%s", "Se alcanzó el máximo de conexiones activas");

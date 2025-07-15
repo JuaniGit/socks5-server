@@ -25,16 +25,19 @@
 #include "config.h"
 
 #define MAX_PENDING_CONNECTION_REQUESTS 20
-#define MAX_CONNECTIONS 1024
+#define MAX_CONNECTIONS 500
 
 // Configuración global
 static struct server_config global_config;
+extern admin_server_config admin_global_config;
 
 // Variables globales para cleanup
 fd_selector global_selector = NULL;
 static int server_fd = -1;
 static int admin_fd = -1;
 static volatile int running = 1;
+
+extern size_t active_count;
 
 /**
  * Función de limpieza de recursos
@@ -152,6 +155,12 @@ static void accept_handler(struct selector_key* key) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
             log(ERROR, "Error en accept(): %s", strerror(errno));
         }
+        return;
+    }
+
+    if (active_count >= admin_global_config.max_connections) {
+        log(DEBUG, "Rechazando conexión, máximo de conexiones alcanzado (%zu)", active_count);
+        close(client_fd);
         return;
     }
 
@@ -359,7 +368,7 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }
     
-    setLogLevel(DEBUG);
+    setLogLevel(INFO);
     log(INFO, "%s", "Inicializando servidor SOCKS5...");
     log(INFO, "%s", "Configuración:");
     log(INFO, "  - Puerto SOCKS: %d", global_config.socks_port);
