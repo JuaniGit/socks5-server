@@ -5,8 +5,6 @@
 // config global del servidor
 static struct admin_server_config global_config = {
     .max_connections = 500,
-    .buffer_size = 4096,
-    .timeout_seconds = 30,
     .config_changed = false
 };
 
@@ -25,34 +23,6 @@ void admin_config_set_max_connections(uint32_t max_conn) {
         global_config.config_changed = true;
         
         log(INFO, "Configuración: max_connections cambiado de %u a %u", old_value, max_conn);
-    }
-    
-    pthread_mutex_unlock(&config_mutex);
-}
-
-void admin_config_set_buffer_size(uint32_t buffer_size) {
-    pthread_mutex_lock(&config_mutex);
-    
-    if (global_config.buffer_size != buffer_size) {
-        uint32_t old_value = global_config.buffer_size;
-        global_config.buffer_size = buffer_size;
-        global_config.config_changed = true;
-        
-        log(INFO, "Configuración: buffer_size cambiado de %u a %u", old_value, buffer_size);
-    }
-    
-    pthread_mutex_unlock(&config_mutex);
-}
-
-void admin_config_set_timeout(uint32_t timeout) {
-    pthread_mutex_lock(&config_mutex);
-    
-    if (global_config.timeout_seconds != timeout) {
-        uint32_t old_value = global_config.timeout_seconds;
-        global_config.timeout_seconds = timeout;
-        global_config.config_changed = true;
-        
-        log(INFO, "Configuración: timeout cambiado de %u a %u", old_value, timeout);
     }
     
     pthread_mutex_unlock(&config_mutex);

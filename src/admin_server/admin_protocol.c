@@ -369,12 +369,6 @@ int admin_process_command(struct admin_connection *conn) {
         case ADMIN_CMD_SET_MAX_CONNECTIONS:
             result = admin_handle_set_max_connections(conn, data_ptr, data_len);
             break;
-        case ADMIN_CMD_SET_BUFFER_SIZE:
-            result = admin_handle_set_buffer_size(conn, data_ptr, data_len);
-            break;
-        case ADMIN_CMD_SET_TIMEOUT:
-            result = admin_handle_set_timeout(conn, data_ptr, data_len);
-            break;
         case ADMIN_CMD_QUIT:
             log(INFO, "%s", "Cliente admin solicitó desconexión");
             admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
@@ -587,47 +581,5 @@ int admin_handle_set_max_connections(struct admin_connection *conn, const uint8_
     admin_config_set_max_connections(max_conn);
     
     log(INFO, "Máximo de conexiones cambiado a %u por admin", max_conn);
-    return admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
-}
-
-int admin_handle_set_buffer_size(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "%s", "Ejecutando comando SET_BUFFER_SIZE");
-    
-    if (len < 4) {
-        log(ERROR, "%s", "Datos insuficientes para SET_BUFFER_SIZE");
-        return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
-    }
-    
-    uint32_t buffer_size = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
-    
-    if (buffer_size < 1024 || buffer_size > 65536) {
-        log(ERROR, "Valor inválido para tamaño de buffer: %u", buffer_size);
-        return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
-    }
-    
-    admin_config_set_buffer_size(buffer_size);
-    
-    log(INFO, "Tamaño de buffer cambiado a %u por admin", buffer_size);
-    return admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
-}
-
-int admin_handle_set_timeout(struct admin_connection *conn, const uint8_t *data, uint16_t len) {
-    log(INFO, "%s", "Ejecutando comando SET_TIMEOUT");
-    
-    if (len < 4) {
-        log(ERROR, "%s", "Datos insuficientes para SET_TIMEOUT");
-        return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
-    }
-    
-    uint32_t timeout = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
-    
-    if (timeout < 1 || timeout > 300) {
-        log(ERROR, "Valor inválido para timeout: %u", timeout);
-        return admin_send_response(conn, ADMIN_REP_INVALID_ARGS, NULL, 0);
-    }
-    
-    admin_config_set_timeout(timeout);
-    
-    log(INFO, "Timeout cambiado a %u segundos por admin", timeout);
     return admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
 }
