@@ -59,12 +59,16 @@ void config_show_help(const char *program_name) {
     printf("       %s -p 1080 -P 8080\n", program_name);
     printf("       %s -l 192.168.1.100 -u alice:wonderland -u bob:builder\n", program_name);
     printf("       %s -L 0.0.0.0\n", program_name);
+
+    setLogLevel(FATAL);
 }
 
 void config_show_version(void) {
     printf("socks5d versión 1.0.0\n");
     printf("Proxy SOCKS5 con funcionalidades avanzadas\n");
     printf("Desarrollado para Protocolos de Comunicación - ITBA 2025\n");
+    
+    setLogLevel(FATAL);
 }
 
 int config_add_cli_user(struct server_config *config, const char *user_pass) {
