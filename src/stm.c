@@ -5,6 +5,9 @@
 #include <stdlib.h>
 #include "stm.h"
 #include <stdio.h>
+#include "selector.h"
+#include "server/connection.h"
+#include "admin_server/admin_protocol.h"
 
 struct selector_key *key;
 
@@ -54,32 +57,87 @@ void jump(struct state_machine *stm, unsigned next, struct selector_key *key) {
 }
 
 unsigned
-stm_handler_read(struct state_machine *stm, struct selector_key *key) {
+stm_handler_read(struct state_machine *stm, struct selector_key* key) {
     handle_first(stm, key);
-    
+
     unsigned current_state = stm->current->state;
-    
-    do {
-        if(stm->current->on_read_ready == 0) {
-            abort();
+    unsigned next_state;
+
+    if (stm->current->on_read_ready == NULL) {
+        abort(); 
+    }
+
+    next_state = stm->current->on_read_ready(key);
+
+    while (next_state != current_state) {
+        unsigned max_state = stm->max_state;
+        jump(stm, next_state, key);
+
+        if (key->data == NULL || next_state == max_state) {
+            return next_state;
         }
-        const unsigned int ret = stm->current->on_read_ready(key);
-        
-        if(ret == current_state) {
-            // No state change, we're done
+
+        stm = &((struct socks5_connection *) key->data)->stm;
+        current_state = stm->current->state;
+
+        if (stm->current->on_read_ready == NULL) break;
+
+        next_state = stm->current->on_read_ready(key);
+    }
+
+    return next_state;
+}
+
+unsigned
+stm_handler_read_admin(struct state_machine *stm, struct selector_key *key) {
+    handle_first(stm, key);
+
+    if (key == NULL || key->data == NULL) return stm->max_state;
+
+    unsigned current_state = stm->current ? stm->current->state : stm->max_state;
+    unsigned ret = current_state;
+    unsigned max_state = stm->max_state; // Guardamos max_state ANTES de cualquier jump()
+
+    do {
+        if (stm == NULL || stm->current == NULL || stm->current->on_read_ready == NULL) {
             break;
         }
-        
-        // State changed, jump to new state
-        jump(stm, ret, key);
-        current_state = ret;
-        
-        // Continue processing in the new state if it has a read handler
-        // This allows processing pipelined data (auth + request in same packet)
-        
-    } while(stm->current->on_read_ready != NULL);
 
-    return current_state;
+        ret = stm->current->on_read_ready(key);
+
+        if (ret == current_state) break;
+
+        jump(stm, ret, key);
+
+        // CRÍTICO: Después de jump(), verificar inmediatamente si la conexión sigue válida
+        // porque jump() puede haber destruido la conexión en on_arrival/on_departure
+        if (key == NULL || key->data == NULL) {
+            return ret;
+        }
+
+        // Verificar si llegamos al estado final usando la variable guardada
+        if (ret >= max_state) {
+            return ret;
+        }
+
+        // Obtener nueva referencia a stm SOLO si la conexión sigue válida
+        struct admin_connection *admin_conn = (struct admin_connection *) key->data;
+        if (admin_conn == NULL) {
+            return ret;
+        }
+
+        stm = &admin_conn->stm;
+        
+        // Verificar que la nueva stm es válida
+        if (stm == NULL || stm->current == NULL) {
+            return ret;
+        }
+
+        current_state = stm->current->state;
+
+    } while (stm->current && stm->current->on_read_ready != NULL);
+
+    return ret;
 }
 
 unsigned

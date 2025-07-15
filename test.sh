@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONCURRENT=10
+CONCURRENT=600
 PROXY="socks5h://localhost:1080"
 USER="charlie:chocolate"
 URL="http://127.0.0.1:3000"

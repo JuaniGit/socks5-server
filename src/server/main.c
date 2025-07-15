@@ -31,7 +31,7 @@
 static struct server_config global_config;
 
 // Variables globales para cleanup
-static fd_selector global_selector = NULL;
+fd_selector global_selector = NULL;
 static int server_fd = -1;
 static int admin_fd = -1;
 static volatile int running = 1;
@@ -42,31 +42,46 @@ static volatile int running = 1;
 static void cleanup_resources(void) {
     log(INFO, "%s", "Iniciando limpieza de recursos...");
     
+    // Activar modo shutdown para que las conexiones se limpien correctamente
+    socks5_set_shutdown_mode(true);
+    
     // Cerrar sockets servidor primero para evitar nuevas conexiones
     if (server_fd >= 0) {
-        log(DEBUG, "Cerrando socket servidor SOCKS5 (fd=%d)", server_fd);
+        log(INFO, "Cerrando socket servidor SOCKS5 (fd=%d)", server_fd);
         close(server_fd);
         server_fd = -1;
     }
     
     if (admin_fd >= 0) {
-        log(DEBUG, "Cerrando socket servidor admin (fd=%d)", admin_fd);
+        log(INFO, "Cerrando socket servidor admin (fd=%d)", admin_fd);
         close(admin_fd);
         admin_fd = -1;
     }
     
     // Destruir selector (esto cierra todas las conexiones activas)
     if (global_selector) {
-        log(DEBUG, "%s", "Destruyendo selector y conexiones activas");
-        //selector_destroy(global_selector);
+        log(INFO, "%s", "Destruyendo selector y conexiones activas");
+        socks5_connection_destroy_all();
+        selector_destroy(global_selector);
+        log(INFO, "%s", "Selector destruido");
         global_selector = NULL;
     }
     
-    // Cerrar subsistemas
-    access_logger_close();
-    metrics_destroy();
+    // Cerrar subsistema de selector
+    log(INFO, "%s", "Cerrando subsistema de selector");
+    selector_close();
+    log(INFO, "%s", "Subsistema de selector cerrado");
     
-    log(DEBUG, "%s", "Limpieza de recursos completada");
+    // Cerrar subsistemas
+    log(INFO, "%s", "Cerrando access logger");
+    access_logger_close();
+    log(INFO, "%s", "Access logger cerrado");
+    
+    log(INFO, "%s", "Destruyendo métricas");
+    metrics_destroy();
+    log(INFO, "%s", "Métricas destruidas");
+    
+    log(INFO, "%s", "Limpieza de recursos completada");
 }
 
 /**
@@ -155,7 +170,7 @@ static void accept_handler(struct selector_key* key) {
     selector_status s = selector_register(key->s, client_fd, &socks5_handler, OP_READ, conn);
     if (s != SELECTOR_SUCCESS) {
         log(ERROR, "Error al registrar cliente: %s", selector_error(s));
-        socks5_connection_destroy(conn);
+        socks5_connection_destroy(conn, key->s);
         close(client_fd);
         return;
     }
@@ -344,7 +359,7 @@ int main(int argc, char* argv[]) {
         return EXIT_SUCCESS;
     }
     
-    setLogLevel(INFO);
+    setLogLevel(DEBUG);
     log(INFO, "%s", "Inicializando servidor SOCKS5...");
     log(INFO, "%s", "Configuración:");
     log(INFO, "  - Puerto SOCKS: %d", global_config.socks_port);

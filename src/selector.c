@@ -312,7 +312,10 @@ selector_destroy(fd_selector s) {
         if(s->fds != NULL) {
             for(size_t i = 0; i < s->fd_size ; i++) {
                 if(ITEM_USED(s->fds + i)) {
-                    selector_unregister_fd(s, i);
+                    // During shutdown, just close the fd without calling handlers
+                    // to avoid accessing potentially freed connection objects
+                    close(s->fds[i].fd);
+                    item_init(s->fds + i);
                 }
             }
             pthread_mutex_destroy(&s->resolution_mutex);
@@ -394,9 +397,14 @@ selector_unregister_fd(fd_selector s, const int fd) {
         key.s    = s;
         key.fd   = item->fd;
         key.data = item->data;
-        item->handler->handle_close(&key);
         
+        // Save handler and clear it to avoid recursive calls
+        const fd_handler *handler = item->handler;
+        item->handler = NULL;
+        
+        handler->handle_close(&key);
     }
+
     // Limpieza del item
     item->interest = OP_NOOP;
     items_update_fdset_for_fd(s, item);

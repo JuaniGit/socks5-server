@@ -113,7 +113,7 @@ void admin_connection_destroy(struct admin_connection *conn) {
 static void admin_read_handler(struct selector_key *key) {
     struct admin_connection *conn = key->data;
     if (conn->destroying) return;
-    stm_handler_read(&conn->stm, key);
+    stm_handler_read_admin(&conn->stm, key);
 }
 
 static void admin_write_handler(struct selector_key *key) {
@@ -128,6 +128,7 @@ static void admin_close_handler(struct selector_key *key) {
     
     log(INFO, "Cerrando conexión admin (fd=%d)", key->fd);
     admin_connection_destroy(conn);
+    key->data = NULL;
 }
 
 const struct fd_handler admin_handler = {

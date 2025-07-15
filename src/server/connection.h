@@ -1,4 +1,3 @@
-
 #ifndef CONNECTION_H
 #define CONNECTION_H
 
@@ -6,6 +5,7 @@
 #include <netdb.h>
 #include <pthread.h>
 #include <sys/time.h>
+#include <stdbool.h>
 #include "../selector.h"
 #include "../stm.h"
 #include "../buffer.h"
@@ -73,8 +73,10 @@ struct socks5_connection {
     struct timeval start_time;
 };
 
+void socks5_connection_destroy_all();
 struct socks5_connection *socks5_connection_new(int client_fd, const struct sockaddr *client_addr);
-void socks5_connection_destroy(struct socks5_connection *conn);
+void socks5_connection_destroy(struct socks5_connection *conn, fd_selector s);
+void socks5_set_shutdown_mode(bool shutting_down);
 extern const struct fd_handler socks5_handler;
 
 #endif

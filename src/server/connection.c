@@ -13,6 +13,12 @@
 #include <arpa/inet.h>
 
 #define BUFFER_SIZE 65536
+#define MAX_CONNECTIONS 1024
+
+// Variable global para indicar si estamos en proceso de shutdown
+static bool server_shutting_down = false;
+
+extern fd_selector global_selector;
 
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
@@ -59,9 +65,17 @@ static const struct state_definition socks5_states[] = {
     }
 };
 
+static struct socks5_connection *active_connections[MAX_CONNECTIONS] = { 0 };
+static size_t active_count = 0;
+
 // ==============================
 // Funciones auxiliares
 // ==============================
+
+void socks5_set_shutdown_mode(bool shutting_down) {
+    server_shutting_down = shutting_down;
+    log(INFO, "Modo shutdown establecido: %s", shutting_down ? "true" : "false");
+}
 
 static double get_time_diff_ms(struct timeval *start, struct timeval *end) {
     return (end->tv_sec - start->tv_sec) * 1000.0 + (end->tv_usec - start->tv_usec) / 1000.0;
@@ -70,6 +84,16 @@ static double get_time_diff_ms(struct timeval *start, struct timeval *end) {
 // ==============================
 // Creación y destrucción
 // ==============================
+
+void socks5_connection_destroy_all(void) {
+    log(INFO, "Liberando %zu conexiones activas al apagar", active_count);
+    for (size_t i = 0; i < active_count; i++) {
+        if (active_connections[i] != NULL) {
+            socks5_connection_destroy(active_connections[i], global_selector);
+        }
+    }
+    active_count = 0;
+}
 
 struct socks5_connection *socks5_connection_new(int client_fd, const struct sockaddr *client_addr) {
     struct socks5_connection *conn = calloc(1, sizeof(*conn));
@@ -128,20 +152,28 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
 
     if (!userpass_def || userpass_def->states_count == 0 || !userpass_def->states || !userpass_def->states_n) {
         log(ERROR, "%s", "Definición de parser inválida");
-        socks5_connection_destroy(conn);
+        socks5_connection_destroy(conn, NULL);
         return NULL;
     }
 
     conn->userpass_parser = parser_init(parser_no_classes(), userpass_def);
     if (!conn->userpass_parser) {
         log(ERROR, "%s", "Error inicializando parser híbrido de autenticación usuario/contraseña");
-        socks5_connection_destroy(conn);
+        socks5_connection_destroy(conn, NULL);
         return NULL;
     }
     
     userpass_parser_data_init(&conn->userpass_data);
     log(DEBUG, "%s", "Parser híbrido inicializado correctamente");
-    
+
+    if (active_count < MAX_CONNECTIONS) {
+        active_connections[active_count++] = conn;
+    } else {
+        log(FATAL, "%s", "Se alcanzó el máximo de conexiones activas");
+        free(conn);  // o lo que sea necesario limpiar
+        return NULL;
+    }
+
     conn->stm.initial = ST_AUTH;
     conn->stm.max_state = ST_DONE;
     conn->stm.states = socks5_states;
@@ -151,10 +183,9 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
     return conn;
 }
 
-void socks5_connection_destroy(struct socks5_connection *conn) {
-    if (!conn || conn->destroying) return;
-    
-    conn->destroying = true;
+void socks5_connection_destroy(struct socks5_connection *conn, fd_selector s) {
+    if (!conn) return;
+
     log(DEBUG, "Destruyendo conexión SOCKS5 (client_fd=%d, remote_fd=%d)", conn->client_fd, conn->remote_fd);
 
     struct timeval end_time;
@@ -163,16 +194,6 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     
     bool successful = conn->authenticated && (conn->remote_fd != -1);
     metrics_connection_ended(successful, connection_time_ms);
-
-    // Cerrar file descriptors solo si no están cerrados
-    if (conn->client_fd != -1) {
-        close(conn->client_fd);
-        conn->client_fd = -1;
-    }
-    if (conn->remote_fd != -1) {
-        close(conn->remote_fd);
-        conn->remote_fd = -1;
-    }
 
     if (conn->addr_list) {
         freeaddrinfo(conn->addr_list);
@@ -188,30 +209,31 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
     }
 
     if (conn->userpass_parser) {
-        log(DEBUG, "%s", "Destruyendo parser híbrido");
         parser_destroy(conn->userpass_parser);
         conn->userpass_parser = NULL;
     }
 
     if (conn->read_buf_client.data) {
         free(conn->read_buf_client.data);
-        conn->read_buf_client.data = NULL;
     }
     if (conn->write_buf_client.data) {
         free(conn->write_buf_client.data);
-        conn->write_buf_client.data = NULL;
     }
     if (conn->read_buf_remote.data) {
         free(conn->read_buf_remote.data);
-        conn->read_buf_remote.data = NULL;
     }
     if (conn->write_buf_remote.data) {
         free(conn->write_buf_remote.data);
-        conn->write_buf_remote.data = NULL;
+    }
+
+    for (size_t i = 0; i < active_count; i++) {
+        if (active_connections[i] == conn) {
+            active_connections[i] = active_connections[--active_count];
+            break;
+        }
     }
     
-    log(DEBUG, "%s", "Conexión SOCKS5 destruida");
-    //free(conn);
+    free(conn);
 }
 
 // ==============================
@@ -238,37 +260,27 @@ static void socks5_block_handler(struct selector_key *key) {
 
 static void socks5_close_handler(struct selector_key *key) {
     struct socks5_connection *conn = key->data;
-    if (!conn || conn->destroying) return;
+    if (!conn) return;
 
-    log(DEBUG, "Close handler llamado para fd=%d", key->fd);
+    log(DEBUG, "Close handler llamado para fd=%d (client_fd=%d, remote_fd=%d)", 
+        key->fd, conn->client_fd, conn->remote_fd);
 
-    // Marcar que extremo se cerro
     if (key->fd == conn->client_fd) {
-        conn->client_closed = true;
-        log(DEBUG, "%s", "Cliente cerró la conexión");
+        if (conn->client_fd != -1) {
+            close(conn->client_fd);
+            conn->client_fd = -1;
+        }
     } else if (key->fd == conn->remote_fd) {
-        conn->remote_closed = true;
-        log(DEBUG, "%s", "Servidor remoto cerró la conexión");
+        if (conn->remote_fd != -1) {
+            close(conn->remote_fd);
+            conn->remote_fd = -1;
+        }
     }
 
-    // Desregistrar el otro fd si no esta cerrado
-    if (!conn->client_closed && conn->client_fd != -1) {
-        selector_unregister_fd(key->s, conn->client_fd);
-        conn->client_closed = true;
+    // Si ambos fds están cerrados, podemos destruir la conexión
+    if (conn->client_fd == -1 && conn->remote_fd == -1) {
+        socks5_connection_destroy(conn, key->s);
     }
-
-    if (!conn->remote_closed && conn->remote_fd != -1) {
-        selector_unregister_fd(key->s, conn->remote_fd);
-        conn->remote_closed = true;
-    }
-
-    // Cerrar si los dos extremos estan cerrados
-    if (conn->client_closed && conn->remote_closed) {
-        log(DEBUG, "%s", "Ambos extremos cerrados. Liberando conexión");
-        socks5_connection_destroy(conn);
-    }
-
-    // free(conn);
 }
 
 
@@ -661,18 +673,17 @@ static unsigned on_stream_write(struct selector_key *key) {
 
 static void on_done_arrival(unsigned state, struct selector_key *key) {
     struct socks5_connection *conn = key->data;
-    log(DEBUG, "%s", "Entrando en estado DONE");
+    log(DEBUG, "Entrando en estado DONE para client_fd=%d, remote_fd=%d", conn->client_fd, conn->remote_fd);
 
+    // Log de acceso
     struct access_log_info log_info;
     memset(&log_info, 0, sizeof(log_info));
-
     log_info.timestamp = time(NULL);
     strncpy(log_info.username, conn->auth_username, sizeof(log_info.username) - 1);
     strncpy(log_info.client_ip, conn->client_ip, sizeof(log_info.client_ip) - 1);
     log_info.client_port = conn->client_port;
     strncpy(log_info.target_host, conn->target_host, sizeof(log_info.target_host) - 1);
     log_info.target_port = conn->target_port;
-
     if (conn->authenticated && conn->remote_fd != -1) {
         snprintf(log_info.status, sizeof(log_info.status), "%u", SOCKS5_REP_SUCCESS);
     } else {
@@ -684,15 +695,13 @@ static void on_done_arrival(unsigned state, struct selector_key *key) {
     }
     access_log(&log_info);
 
-    if (!conn->client_closed && conn->client_fd != -1) {
+    // Iniciar el proceso de cierre.
+    // selector_unregister_fd llamará a socks5_close_handler, que se encargará
+    // de cerrar el fd y, eventualmente, de destruir la conexión.
+    if (conn->client_fd != -1) {
         selector_unregister_fd(key->s, conn->client_fd);
-        conn->client_closed = true;
     }
-
-    if (!conn->remote_closed && conn->remote_fd != -1) {
+    if (conn->remote_fd != -1) {
         selector_unregister_fd(key->s, conn->remote_fd);
-        conn->remote_closed = true;
     }
-
-    // El destroy lo maneja el close_handler cuando ambos extremos estén cerrados.
 }

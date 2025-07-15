@@ -67,6 +67,10 @@ stm_init(struct state_machine *stm);
 unsigned
 stm_state        (struct state_machine *stm);
 
+/** indica que ocurrió el evento read. retorna nuevo id de nuevo estado. Para admin. */
+unsigned
+stm_handler_read_admin(struct state_machine *stm, struct selector_key *key);
+
 /** indica que ocurrió el evento read. retorna nuevo id de nuevo estado. */
 unsigned
 stm_handler_read(struct state_machine *stm, struct selector_key *key);
