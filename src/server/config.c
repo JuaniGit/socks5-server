@@ -73,7 +73,6 @@ int config_add_cli_user(struct server_config *config, const char *user_pass) {
         return -1;
     }
     
-    // Buscar el separador ':'
     const char *colon = strchr(user_pass, ':');
     if (!colon) {
         log(ERROR, "%s", "Formato inválido para usuario. Use: usuario:contraseña");

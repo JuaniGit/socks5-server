@@ -52,10 +52,8 @@ struct admin_connection *admin_connection_new(int client_fd) {
     conn->authenticated = false;
     conn->destroying = false;
     
-    // timestamp
     gettimeofday(&conn->start_time, NULL);
     
-    // buffers
     uint8_t *read_buf_data = malloc(2048);
     uint8_t *write_buf_data = malloc(2048);
     
@@ -86,13 +84,11 @@ void admin_connection_destroy(struct admin_connection *conn) {
     conn->destroying = true;
     log(INFO, "Destruyendo conexión admin (fd=%d)", conn->client_fd);
     
-    // Cerrar file descriptor
     if (conn->client_fd != -1) {
         close(conn->client_fd);
         conn->client_fd = -1;
     }
     
-    // Liberar buffers
     if (conn->read_buf.data) {
         free(conn->read_buf.data);
         conn->read_buf.data = NULL;
@@ -149,7 +145,6 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
     selector_set_interest_key(key, OP_READ);
     buffer *b = &conn->read_buf;
     
-    // Leer datos del socket
     size_t space;
     uint8_t *ptr = buffer_write_ptr(b, &space);
     
@@ -167,17 +162,15 @@ static unsigned on_admin_auth_read(struct selector_key *key) {
     
     buffer_write_adv(b, n);
     
-    // Procesar auth
     int result = admin_process_auth(conn);
     if (result < 0) {
         log(INFO, "%s", "Autenticación admin fallida");
         return ST_ADMIN_DONE;
     }
     if (result == 0) {
-        return ST_ADMIN_AUTH;  // Necesita más datos
+        return ST_ADMIN_AUTH; 
     }
     
-    // auth exitosa
     log(INFO, "Cliente admin autenticado exitosamente desde %s", conn->client_address);
     log(DEBUG, "%s", "Transición: ST_ADMIN_AUTH -> ST_ADMIN_COMMAND");
     return ST_ADMIN_COMMAND;
@@ -192,7 +185,6 @@ static unsigned on_admin_command_read(struct selector_key *key) {
     selector_set_interest_key(key, OP_READ);
     buffer *b = &conn->read_buf;
     
-    // Leer datos del socket
     size_t space;
     uint8_t *ptr = buffer_write_ptr(b, &space);
     
@@ -210,17 +202,15 @@ static unsigned on_admin_command_read(struct selector_key *key) {
     
     buffer_write_adv(b, n);
     
-    // Procesar comando
     int result = admin_process_command(conn);
     if (result < 0) {
         log(ERROR, "%s", "Error procesando comando admin");
         return ST_ADMIN_DONE;
     }
     if (result == 0) {
-        return ST_ADMIN_COMMAND;  // Necesita más datos
+        return ST_ADMIN_COMMAND;
     }
     
-    // todo ok, seguir esperando más comandos
     return ST_ADMIN_COMMAND;
 }
 
@@ -231,12 +221,10 @@ static unsigned on_admin_response_write(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE);
     buffer *b = &conn->write_buf;
     
-    // Escribir datos que quedaron
     size_t available;
     uint8_t *data = buffer_read_ptr(b, &available);
     
     if (available == 0) {
-        // No hay datos para escribir -> volver a comando
         selector_set_interest_key(key, OP_READ);
         return ST_ADMIN_COMMAND;
     }
@@ -252,7 +240,6 @@ static unsigned on_admin_response_write(struct selector_key *key) {
     
     buffer_read_adv(b, sent);
     
-    // chequear que se escribio todo
     buffer_read_ptr(b, &available);
     if (available == 0) {
         selector_set_interest_key(key, OP_READ);
@@ -266,7 +253,6 @@ static void on_admin_done_arrival(unsigned state, struct selector_key *key) {
     struct admin_connection *conn = key->data;
     log(DEBUG, "%s", "Entrando en estado ADMIN_DONE");
     
-    // Desregistrar del selector
     selector_unregister_fd(key->s, conn->client_fd);
     
     // La destrucción la maneja el close_handler
@@ -299,7 +285,6 @@ int admin_process_auth(struct admin_connection *conn) {
         return 0;
     }
     
-    // Verificar token
     char token[256];
     memcpy(token, ptr + 2, token_len);
     token[token_len] = '\0';
@@ -310,10 +295,8 @@ int admin_process_auth(struct admin_connection *conn) {
         return -1;
     }
     
-    // Consumir datos
     buffer_read_adv(b, 2 + token_len);
     
-    // auth exitosa
     conn->authenticated = true;
     admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
     
@@ -346,7 +329,6 @@ int admin_process_command(struct admin_connection *conn) {
         return -1;
     }
     
-    // ver si necesitamos más datos según el comando
     uint16_t data_len = 0;
     uint8_t *data_ptr = NULL;
     
@@ -367,7 +349,6 @@ int admin_process_command(struct admin_connection *conn) {
         data_ptr = ptr + 4;
     }
     
-    // procesar comando
     int result = 0;
     switch (command) {
         case ADMIN_CMD_LIST_USERS:
@@ -397,7 +378,7 @@ int admin_process_command(struct admin_connection *conn) {
         case ADMIN_CMD_QUIT:
             log(INFO, "%s", "Cliente admin solicitó desconexión");
             admin_send_response(conn, ADMIN_REP_SUCCESS, NULL, 0);
-            return -1;  // para cerrar conexión
+            return -1; 
         default:
             log(ERROR, "Comando admin no soportado: %d", command);
             admin_send_response(conn, ADMIN_REP_COMMAND_NOT_SUPPORTED, NULL, 0);
@@ -405,7 +386,6 @@ int admin_process_command(struct admin_connection *conn) {
             break;
     }
     
-    // consumir datos del comando
     buffer_read_adv(b, 2 + (data_len > 0 ? 2 + data_len : 0));
     
     return result;

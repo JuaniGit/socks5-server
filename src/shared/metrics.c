@@ -8,23 +8,19 @@
 #undef log
 #include "../shared/logger.h"
 
-// Instancia global de métricas
 static struct socks5_metrics global_metrics;
 static pthread_mutex_t metrics_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool metrics_initialized = false;
 
-// Tabla hash simple para usuarios únicos
 #define MAX_UNIQUE_USERS 1000
 static char unique_users[MAX_UNIQUE_USERS][256];
 static int unique_users_count = 0;
-
-// === Funciones auxiliares ===
 
 static void update_throughput(void) {
     time_t now = time(NULL);
     time_t elapsed = now - global_metrics.last_throughput_calculation;
     
-    if (elapsed >= 1) { // Actualizar cada segundo
+    if (elapsed >= 1) {
         uint64_t bytes_diff = global_metrics.transfers.total_bytes_transferred - global_metrics.last_bytes_count;
         global_metrics.performance.current_throughput_bps = (double)bytes_diff / elapsed;
         
@@ -36,11 +32,9 @@ static void update_throughput(void) {
 static void update_connections_per_minute(void) {
     time_t now = time(NULL);
     
-    // Agregar timestamp actual
     global_metrics.connection_timestamps[global_metrics.connection_timestamp_index] = now;
     global_metrics.connection_timestamp_index = (global_metrics.connection_timestamp_index + 1) % 60;
     
-    // Contar conexiones en el último minuto
     uint64_t count = 0;
     for (int i = 0; i < 60; i++) {
         if (global_metrics.connection_timestamps[i] > 0 && 
@@ -76,14 +70,10 @@ static void add_unique_user(const char *username) {
 static void update_most_active_user(const char *username) {
     if (!username) return;
     
-    // Implementación simple: solo trackear el último usuario autenticado
-    // En una implementación más compleja, mantendríamos un contador por usuario
     strncpy(global_metrics.users.most_active_user, username, 255);
     global_metrics.users.most_active_user[255] = '\0';
     global_metrics.users.most_active_user_connections++;
 }
-
-// === Funciones públicas ===
 
 bool metrics_init(void) {
     pthread_mutex_lock(&metrics_mutex);
@@ -121,7 +111,6 @@ void metrics_connection_started(void) {
     global_metrics.connections.total_connections++;
     global_metrics.connections.current_connections++;
     
-    // Actualizar máximo de conexiones concurrentes
     if (global_metrics.connections.current_connections > global_metrics.performance.max_concurrent_connections) {
         global_metrics.performance.max_concurrent_connections = global_metrics.connections.current_connections;
     }
@@ -130,9 +119,6 @@ void metrics_connection_started(void) {
     
     pthread_mutex_unlock(&metrics_mutex);
     
-    //log(DEBUG, "Métrica: Nueva conexión iniciada. Total: %lu, Actuales: %lu", 
-    //    global_metrics.connections.total_connections, 
-    //    global_metrics.connections.current_connections);
 }
 
 void metrics_connection_ended(bool successful, double connection_time_ms) {
@@ -148,7 +134,6 @@ void metrics_connection_ended(bool successful, double connection_time_ms) {
         global_metrics.connections.failed_connections++;
     }
     
-    // Actualizar tiempo promedio de conexión (media móvil simple)
     if (connection_time_ms > 0) {
         double current_avg = global_metrics.performance.avg_connection_time_ms;
         uint64_t total_successful = global_metrics.connections.successful_connections;
@@ -247,11 +232,6 @@ void metrics_bytes_transferred(uint64_t from_client, uint64_t to_client,
     update_throughput();
     
     pthread_mutex_unlock(&metrics_mutex);
-    
-    //if (from_client + to_client + from_remote + to_remote > 0) {
-    //    log(DEBUG, "Métrica: Bytes transferidos - Cliente: %lu->%lu, Remoto: %lu->%lu", 
-    //        from_client, to_client, from_remote, to_remote);
-    //}
 }
 
 struct socks5_metrics metrics_get_snapshot(void) {
@@ -259,7 +239,7 @@ struct socks5_metrics metrics_get_snapshot(void) {
     
     pthread_mutex_lock(&metrics_mutex);
     snapshot = global_metrics;
-    update_throughput(); // Actualizar throughput antes de retornar
+    update_throughput();
     pthread_mutex_unlock(&metrics_mutex);
     
     return snapshot;
@@ -388,7 +368,6 @@ char* metrics_to_json(void) {
     struct socks5_metrics snapshot = metrics_get_snapshot();
     uint64_t uptime = metrics_get_uptime_seconds();
     
-    // Alocar buffer para JSON (estimación generosa)
     char *json = malloc(2048);
     if (!json) return NULL;
     

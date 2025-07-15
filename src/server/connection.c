@@ -170,7 +170,7 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
         active_connections[active_count++] = conn;
     } else {
         log(FATAL, "%s", "Se alcanzó el máximo de conexiones activas");
-        free(conn);  // o lo que sea necesario limpiar
+        free(conn); 
         return NULL;
     }
 
@@ -277,7 +277,6 @@ static void socks5_close_handler(struct selector_key *key) {
         }
     }
 
-    // Si ambos fds están cerrados, podemos destruir la conexión
     if (conn->client_fd == -1 && conn->remote_fd == -1) {
         socks5_connection_destroy(conn, key->s);
     }
@@ -420,8 +419,6 @@ static unsigned on_request_read(struct selector_key *key) {
         start_resolve_async(conn, key->s);
         return ST_RESOLVING;
     } else {
-        // Es una IP, podemos conectar directamente
-        // Crear una addrinfo fake para la IP
         struct addrinfo *addr = calloc(1, sizeof(*addr));
         if (!addr) {
             log(ERROR, "%s", "Error alocando memoria para addrinfo");
@@ -495,7 +492,7 @@ static unsigned on_resolving_block(struct selector_key *key) {
     }
     
     conn->addr_list = conn->dns_job->result;
-    conn->dns_job->result = NULL; // imp!! para evitar double free
+    conn->dns_job->result = NULL;
     
     log(DEBUG, "Resolución DNS completada para %s, procediendo a conectar", conn->target_host);
     
@@ -675,7 +672,6 @@ static void on_done_arrival(unsigned state, struct selector_key *key) {
     struct socks5_connection *conn = key->data;
     log(DEBUG, "Entrando en estado DONE para client_fd=%d, remote_fd=%d", conn->client_fd, conn->remote_fd);
 
-    // Log de acceso
     struct access_log_info log_info;
     memset(&log_info, 0, sizeof(log_info));
     log_info.timestamp = time(NULL);
@@ -695,9 +691,6 @@ static void on_done_arrival(unsigned state, struct selector_key *key) {
     }
     access_log(&log_info);
 
-    // Iniciar el proceso de cierre.
-    // selector_unregister_fd llamará a socks5_close_handler, que se encargará
-    // de cerrar el fd y, eventualmente, de destruir la conexión.
     if (conn->client_fd != -1) {
         selector_unregister_fd(key->s, conn->client_fd);
     }

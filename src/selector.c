@@ -312,8 +312,6 @@ selector_destroy(fd_selector s) {
         if(s->fds != NULL) {
             for(size_t i = 0; i < s->fd_size ; i++) {
                 if(ITEM_USED(s->fds + i)) {
-                    // During shutdown, just close the fd without calling handlers
-                    // to avoid accessing potentially freed connection objects
                     close(s->fds[i].fd);
                     item_init(s->fds + i);
                 }
@@ -391,26 +389,22 @@ selector_unregister_fd(fd_selector s, const int fd) {
         return SELECTOR_IARGS;
     }
 
-    // Ejecutamos handle_close antes de modificar o limpiar el item
     if (item->handler != NULL && item->handler->handle_close != NULL) {
         struct selector_key key;
         key.s    = s;
         key.fd   = item->fd;
         key.data = item->data;
         
-        // Save handler and clear it to avoid recursive calls
         const fd_handler *handler = item->handler;
         item->handler = NULL;
         
         handler->handle_close(&key);
     }
 
-    // Limpieza del item
     item->interest = OP_NOOP;
     items_update_fdset_for_fd(s, item);
     item_init(item);
 
-    // Recalcular el nuevo max_fd
     s->max_fd = items_max_fd(s);
 
     return ret;

@@ -15,7 +15,6 @@ struct selector_key *key;
 
 void
 stm_init(struct state_machine *stm) {
-    // verificamos que los estados son correlativos, y que están bien asignados.
     for(unsigned i = 0 ; i <= stm->max_state; i++) {
         if(i != stm->states[i].state) {
             abort();
@@ -96,7 +95,7 @@ stm_handler_read_admin(struct state_machine *stm, struct selector_key *key) {
 
     unsigned current_state = stm->current ? stm->current->state : stm->max_state;
     unsigned ret = current_state;
-    unsigned max_state = stm->max_state; // Guardamos max_state ANTES de cualquier jump()
+    unsigned max_state = stm->max_state;
 
     do {
         if (stm == NULL || stm->current == NULL || stm->current->on_read_ready == NULL) {
@@ -109,18 +108,14 @@ stm_handler_read_admin(struct state_machine *stm, struct selector_key *key) {
 
         jump(stm, ret, key);
 
-        // CRÍTICO: Después de jump(), verificar inmediatamente si la conexión sigue válida
-        // porque jump() puede haber destruido la conexión en on_arrival/on_departure
         if (key == NULL || key->data == NULL) {
             return ret;
         }
 
-        // Verificar si llegamos al estado final usando la variable guardada
         if (ret >= max_state) {
             return ret;
         }
 
-        // Obtener nueva referencia a stm SOLO si la conexión sigue válida
         struct admin_connection *admin_conn = (struct admin_connection *) key->data;
         if (admin_conn == NULL) {
             return ret;
@@ -128,7 +123,6 @@ stm_handler_read_admin(struct state_machine *stm, struct selector_key *key) {
 
         stm = &admin_conn->stm;
         
-        // Verificar que la nueva stm es válida
         if (stm == NULL || stm->current == NULL) {
             return ret;
         }

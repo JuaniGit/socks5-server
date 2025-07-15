@@ -68,3 +68,8 @@ instructions.txt
 
 # Log files
 *.log
+out.txt
+
+# Scripts
+*.py
+*.sh

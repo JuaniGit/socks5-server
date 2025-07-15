@@ -9,7 +9,7 @@ struct admin_server_config {
     uint32_t max_connections;
     uint32_t buffer_size;
     uint32_t timeout_seconds;
-    bool config_changed;  // Flag para notificar cambios
+    bool config_changed; 
 };
 
 struct admin_server_config* admin_config_get(void);
