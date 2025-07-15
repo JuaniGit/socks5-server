@@ -307,7 +307,7 @@ selector_new(const size_t initial_elements) {
 
 void
 selector_destroy(fd_selector s) {
-    // lean ya que se llama desde los casos fallidos de _new.
+    // lan ya que se llama desde los casos fallidos de _new.
     if(s != NULL) {
         if(s->fds != NULL) {
             for(size_t i = 0; i < s->fd_size ; i++) {
@@ -376,38 +376,35 @@ finally:
 }
 
 selector_status
-selector_unregister_fd(fd_selector       s,
-                       const int         fd) {
+selector_unregister_fd(fd_selector s, const int fd) {
     selector_status ret = SELECTOR_SUCCESS;
 
-    if(NULL == s || INVALID_FD(fd)) {
-        ret = SELECTOR_IARGS;
-        goto finally;
+    if (s == NULL || INVALID_FD(fd)) {
+        return SELECTOR_IARGS;
     }
 
     struct item *item = s->fds + fd;
-    if(!ITEM_USED(item)) {
-        ret = SELECTOR_IARGS;
-        goto finally;
+    if (!ITEM_USED(item)) {
+        return SELECTOR_IARGS;
     }
 
-    if(item->handler->handle_close != NULL) {
-        struct selector_key key = {
-            .s    = s,
-            .fd   = item->fd,
-            .data = item->data,
-        };
+    // Ejecutamos handle_close antes de modificar o limpiar el item
+    if (item->handler != NULL && item->handler->handle_close != NULL) {
+        struct selector_key key;
+        key.s    = s;
+        key.fd   = item->fd;
+        key.data = item->data;
         item->handler->handle_close(&key);
+        
     }
-
+    // Limpieza del item
     item->interest = OP_NOOP;
     items_update_fdset_for_fd(s, item);
-
-    memset(item, 0x00, sizeof(*item));
     item_init(item);
+
+    // Recalcular el nuevo max_fd
     s->max_fd = items_max_fd(s);
 
-finally:
     return ret;
 }
 

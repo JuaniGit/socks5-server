@@ -30,6 +30,54 @@
 // Configuración global
 static struct server_config global_config;
 
+// Variables globales para cleanup
+static fd_selector global_selector = NULL;
+static int server_fd = -1;
+static int admin_fd = -1;
+static volatile int running = 1;
+
+/**
+ * Función de limpieza de recursos
+ */
+static void cleanup_resources(void) {
+    log(INFO, "%s", "Iniciando limpieza de recursos...");
+    
+    // Cerrar sockets servidor primero para evitar nuevas conexiones
+    if (server_fd >= 0) {
+        log(DEBUG, "Cerrando socket servidor SOCKS5 (fd=%d)", server_fd);
+        close(server_fd);
+        server_fd = -1;
+    }
+    
+    if (admin_fd >= 0) {
+        log(DEBUG, "Cerrando socket servidor admin (fd=%d)", admin_fd);
+        close(admin_fd);
+        admin_fd = -1;
+    }
+    
+    // Destruir selector (esto cierra todas las conexiones activas)
+    if (global_selector) {
+        log(DEBUG, "%s", "Destruyendo selector y conexiones activas");
+        //selector_destroy(global_selector);
+        global_selector = NULL;
+    }
+    
+    // Cerrar subsistemas
+    access_logger_close();
+    metrics_destroy();
+    
+    log(DEBUG, "%s", "Limpieza de recursos completada");
+}
+
+/**
+ * Manejador de señales
+ */
+static void signal_handler(int sig) {
+    log(INFO, "Recibida señal %d (%s). Finalizando servidor...", 
+        sig, (sig == SIGINT) ? "SIGINT" : (sig == SIGTERM) ? "SIGTERM" : "UNKNOWN");
+    running = 0;
+}
+
 /**
  * Handler para nuevas conexiones de administración
  */
@@ -103,8 +151,6 @@ static void accept_handler(struct selector_key* key) {
         return;
     }
 
-    log(INFO, "Conexión SOCKS5 creada para fd=%d", client_fd);
-
     // Registrar en el selector con el handler global
     selector_status s = selector_register(key->s, client_fd, &socks5_handler, OP_READ, conn);
     if (s != SELECTOR_SUCCESS) {
@@ -125,7 +171,7 @@ static void accept_handler(struct selector_key* key) {
  * Inicializa socket servidor con dirección específica
  */
 static int setup_server_socket(const char *address, int port) {
-    int server_fd;
+    int server_socket;
     
     // Determinar si es IPv4 o IPv6
     struct sockaddr_in addr4;
@@ -135,8 +181,8 @@ static int setup_server_socket(const char *address, int port) {
     
     if (inet_pton(AF_INET, address, &addr4.sin_addr) == 1) {
         // IPv4
-        server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (server_fd < 0) {
+        server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (server_socket < 0) {
             log(ERROR, "Error creando socket IPv4: %s", strerror(errno));
             return -1;
         }
@@ -151,8 +197,8 @@ static int setup_server_socket(const char *address, int port) {
         
     } else if (inet_pton(AF_INET6, address, &addr6.sin6_addr) == 1) {
         // IPv6
-        server_fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
-        if (server_fd < 0) {
+        server_socket = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+        if (server_socket < 0) {
             log(ERROR, "Error creando socket IPv6: %s", strerror(errno));
             return -1;
         }
@@ -167,8 +213,8 @@ static int setup_server_socket(const char *address, int port) {
         
     } else if (strcmp(address, "0.0.0.0") == 0) {
         // IPv4 todas las interfaces
-        server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-        if (server_fd < 0) {
+        server_socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (server_socket < 0) {
             log(ERROR, "Error creando socket IPv4: %s", strerror(errno));
             return -1;
         }
@@ -183,15 +229,15 @@ static int setup_server_socket(const char *address, int port) {
         
     } else if (strcmp(address, "::") == 0) {
         // IPv6 todas las interfaces
-        server_fd = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
-        if (server_fd < 0) {
+        server_socket = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+        if (server_socket < 0) {
             log(ERROR, "Error creando socket IPv6: %s", strerror(errno));
             return -1;
         }
         
         // Configurar para aceptar IPv4 también
         int ipv6only = 0;
-        setsockopt(server_fd, IPPROTO_IPV6, IPV6_V6ONLY, &ipv6only, sizeof(ipv6only));
+        setsockopt(server_socket, IPPROTO_IPV6, IPV6_V6ONLY, &ipv6only, sizeof(ipv6only));
         
         memset(&addr6, 0, sizeof(addr6));
         addr6.sin6_family = AF_INET6;
@@ -208,31 +254,31 @@ static int setup_server_socket(const char *address, int port) {
 
     // Permitir reutilizar la dirección
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     // Bind
-    if (bind(server_fd, addr, addr_len) < 0) {
+    if (bind(server_socket, addr, addr_len) < 0) {
         log(ERROR, "Error en bind() para %s:%d: %s", address, port, strerror(errno));
-        close(server_fd);
+        close(server_socket);
         return -1;
     }
 
     // Listen
-    if (listen(server_fd, MAX_PENDING_CONNECTION_REQUESTS) < 0) {
+    if (listen(server_socket, MAX_PENDING_CONNECTION_REQUESTS) < 0) {
         log(ERROR, "Error en listen(): %s", strerror(errno));
-        close(server_fd);
+        close(server_socket);
         return -1;
     }
 
     // Hacer no bloqueante
-    if (selector_fd_set_nio(server_fd) < 0) {
+    if (selector_fd_set_nio(server_socket) < 0) {
         log(ERROR, "No se pudo poner el socket en no bloqueante: %s", strerror(errno));
-        close(server_fd);
+        close(server_socket);
         return -1;
     }
 
     log(INFO, "Servidor escuchando en %s:%d", address, port);
-    return server_fd;
+    return server_socket;
 }
 
 /**
@@ -253,19 +299,31 @@ static void load_cli_users(struct server_config *config) {
 }
 
 /**
- * Señales
- */
-static volatile int running = 1;
-
-static void signal_handler(int sig) {
-    log(INFO, "Recibida señal %d. Finalizando...", sig);
-    running = 0;
-}
-
-/**
  * Main
  */
 int main(int argc, char* argv[]) {
+    // Registrar función de limpieza
+    atexit(cleanup_resources);
+    
+    // Configurar manejadores de señales
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    
+    if (sigaction(SIGINT, &sa, NULL) < 0) {
+        log(ERROR, "Error configurando manejador SIGINT: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
+    
+    if (sigaction(SIGTERM, &sa, NULL) < 0) {
+        log(ERROR, "Error configurando manejador SIGTERM: %s", strerror(errno));
+        return EXIT_FAILURE;
+    }
+    
+    // Ignorar SIGPIPE
+    signal(SIGPIPE, SIG_IGN);
+    
     // Inicializar configuración
     config_init(&global_config);
     
@@ -302,10 +360,6 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
 
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGPIPE, SIG_IGN);
-
     // Inicializar sistema de métricas
     if (!metrics_init()) {
         log(FATAL, "%s", "Error inicializando sistema de métricas");
@@ -313,18 +367,12 @@ int main(int argc, char* argv[]) {
     }
 
     // Inicializar sistema de usuarios
-    if (!users_init(NULL)) {
-        log(FATAL, "%s", "Error inicializando sistema de usuarios");
-        metrics_destroy();
-        return EXIT_FAILURE;
-    }
+    users_init();
 
     // Inicializar Access Logger
     if (global_config.access_log_enabled) {
         if (!access_logger_init(strlen(global_config.access_log_file) > 0 ? global_config.access_log_file : NULL)) {
             log(FATAL, "Error inicializando access logger en %s", strlen(global_config.access_log_file) > 0 ? global_config.access_log_file : "stdout");
-            metrics_destroy();
-            users_destroy();
             return EXIT_FAILURE;
         }
     }
@@ -343,25 +391,18 @@ int main(int argc, char* argv[]) {
 
     if (selector_init(&conf) != SELECTOR_SUCCESS) {
         log(FATAL, "%s", "No se pudo inicializar el selector");
-        metrics_destroy();
         return EXIT_FAILURE;
     }
 
-    fd_selector selector = selector_new(MAX_CONNECTIONS);
-    if (selector == NULL) {
+    global_selector = selector_new(MAX_CONNECTIONS);
+    if (global_selector == NULL) {
         log(FATAL, "%s", "No se pudo crear el selector");
-        metrics_destroy();
         return EXIT_FAILURE;
     }
 
     // Crear servidor SOCKS
-    int server_fd = setup_server_socket(global_config.socks_address, global_config.socks_port);
+    server_fd = setup_server_socket(global_config.socks_address, global_config.socks_port);
     if (server_fd < 0) {
-        if (selector != NULL) {
-            selector_destroy(selector);
-            selector_close();
-        }
-        metrics_destroy();
         return EXIT_FAILURE;
     }
 
@@ -372,12 +413,8 @@ int main(int argc, char* argv[]) {
         .handle_close = NULL,
     };
 
-    if (selector_register(selector, server_fd, &server_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
+    if (selector_register(global_selector, server_fd, &server_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
         log(FATAL, "%s", "Error registrando socket servidor");
-        close(server_fd);
-        selector_destroy(selector);
-        selector_close();
-        metrics_destroy();
         return EXIT_FAILURE;
     }
 
@@ -387,19 +424,19 @@ int main(int argc, char* argv[]) {
     admin_config_init();
 
     // Configurar servidor de administración
-    int admin_fd = setup_server_socket(global_config.management_address, global_config.management_port);
+    admin_fd = setup_server_socket(global_config.management_address, global_config.management_port);
     if (admin_fd < 0) {
         log(ERROR, "No se pudo crear servidor de administración en %s:%d", 
             global_config.management_address, global_config.management_port);
     } else {
-        fd_handler admin_accept_handler = {
+        static fd_handler admin_accept_handler = {
             .handle_read = admin_accept_handler_func,
             .handle_write = NULL,
             .handle_block = NULL,
             .handle_close = NULL,
         };
 
-        if (selector_register(selector, admin_fd, &admin_accept_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
+        if (selector_register(global_selector, admin_fd, &admin_accept_handler, OP_READ, NULL) != SELECTOR_SUCCESS) {
             log(ERROR, "%s", "Error registrando servidor de administración");
             close(admin_fd);
             admin_fd = -1;
@@ -413,7 +450,7 @@ int main(int argc, char* argv[]) {
     time_t last_stats = time(NULL);    
 
     while (running) {
-        selector_status s = selector_select(selector);
+        selector_status s = selector_select(global_selector);
         if (s == SELECTOR_IO && errno == EBADF) {
             log(DEBUG, "%s", "Descriptor inválido detectado. Probablemente un cliente cerró la conexión sin desregistrarse.");
             continue;
@@ -429,17 +466,13 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    log(INFO, "%s", "Señal recibida, saliendo del bucle principal");
+
     log(INFO, "%s", "Servidor finalizando...");
     metrics_print_summary();
 
-    close(server_fd);
-    if (admin_fd >= 0) {
-        close(admin_fd);
-    }
-    selector_destroy(selector);
-    selector_close();
-    metrics_destroy();
-    access_logger_close();
-    log(INFO, "%s", "Recursos liberados. Hasta luego.");
+    log(INFO, "%s", "Hasta luego.");
+    
+    // La limpieza se hace automáticamente via atexit()
     return EXIT_SUCCESS;
 }

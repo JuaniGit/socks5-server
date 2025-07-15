@@ -18,7 +18,7 @@ struct user_credentials {
 extern struct user_credentials users_db[MAX_USERS];
 extern size_t users_count;
 
-bool users_init(const char *csv_file);
+bool users_init();
 bool users_validate(const char *username, const char *password);
 bool users_add(const char *username, const char *password);
 bool users_remove(const char *username);

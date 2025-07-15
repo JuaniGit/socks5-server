@@ -12,6 +12,8 @@
 #include <sys/time.h>
 #include <arpa/inet.h>
 
+#define BUFFER_SIZE 65536
+
 // Prototipos de funciones por estado
 static unsigned on_auth_read(struct selector_key *key);
 static unsigned on_auth_userpass_read(struct selector_key *key);
@@ -100,10 +102,10 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
     }
     conn->socks5_reply_code = SOCKS5_REP_GENERAL_FAILURE;
     
-    uint8_t *read_client_buf = malloc(4096);
-    uint8_t *write_client_buf = malloc(4096);
-    uint8_t *read_remote_buf = malloc(4096);
-    uint8_t *write_remote_buf = malloc(4096);
+    uint8_t *read_client_buf = malloc(BUFFER_SIZE);
+    uint8_t *write_client_buf = malloc(BUFFER_SIZE);
+    uint8_t *read_remote_buf = malloc(BUFFER_SIZE);
+    uint8_t *write_remote_buf = malloc(BUFFER_SIZE);
     
     if (!read_client_buf || !write_client_buf || !read_remote_buf || !write_remote_buf) {
         log(ERROR, "%s", "Error alocando memoria para buffers");
@@ -115,10 +117,10 @@ struct socks5_connection *socks5_connection_new(int client_fd, const struct sock
         return NULL;
     }
     
-    buffer_init(&conn->read_buf_client, 4096, read_client_buf);
-    buffer_init(&conn->write_buf_client, 4096, write_client_buf);
-    buffer_init(&conn->read_buf_remote, 4096, read_remote_buf);
-    buffer_init(&conn->write_buf_remote, 4096, write_remote_buf);
+    buffer_init(&conn->read_buf_client, BUFFER_SIZE, read_client_buf);
+    buffer_init(&conn->write_buf_client, BUFFER_SIZE, write_client_buf);
+    buffer_init(&conn->read_buf_remote, BUFFER_SIZE, read_remote_buf);
+    buffer_init(&conn->write_buf_remote, BUFFER_SIZE, write_remote_buf);
     
     log(DEBUG, "%s", "Inicializando parser híbrido de autenticación usuario/contraseña");
 
@@ -207,9 +209,9 @@ void socks5_connection_destroy(struct socks5_connection *conn) {
         free(conn->write_buf_remote.data);
         conn->write_buf_remote.data = NULL;
     }
-
-    free(conn);
+    
     log(DEBUG, "%s", "Conexión SOCKS5 destruida");
+    //free(conn);
 }
 
 // ==============================
@@ -265,6 +267,8 @@ static void socks5_close_handler(struct selector_key *key) {
         log(DEBUG, "%s", "Ambos extremos cerrados. Liberando conexión");
         socks5_connection_destroy(conn);
     }
+
+    // free(conn);
 }
 
 

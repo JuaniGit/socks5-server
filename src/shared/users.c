@@ -8,12 +8,10 @@
 struct user_credentials users_db[MAX_USERS];
 size_t users_count = 0;
 
-bool users_init(const char *csv_file) {
+bool users_init() {
     users_count = 0;
     
-    if (!csv_file) {
-        csv_file = USERS_CSV_FILE;
-    }
+    char* csv_file = USERS_CSV_FILE;
     
     FILE *file = fopen(csv_file, "r");
     if (!file) {
